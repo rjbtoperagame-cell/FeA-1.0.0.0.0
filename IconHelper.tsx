@@ -23,12 +23,12 @@ import {
 import {
   subscribeToUsers,
   subscribeToSystemConfig,
-  saveUserToFirestore,
-  saveXPConfigToFirestore,
-  saveCustomSkillsToFirestore,
-  saveDesigniosToFirestore,
+  saveUserToSupabase as saveUserToFirestore,
+  saveXPConfigToSupabase as saveXPConfigToFirestore,
+  saveCustomSkillsToSupabase as saveCustomSkillsToFirestore,
+  saveDesigniosToSupabase as saveDesigniosToFirestore,
   CharacterSheetState,
-} from './lib/firebase';
+} from './lib/supabase';
 import {
   Layers,
   Sword,
