@@ -1,23 +1,6 @@
-{
-  "compilerOptions": {
-    "target": "ES2022",
-    "useDefineForClassFields": true,
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
-    "skipLibCheck": true,
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true,
-    "jsx": "react-jsx",
-    "strict": false,
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
-    "noImplicitAny": false,
-    "paths": {
-      "@/*": ["./src/*"]
-    }
-  },
-  "include": ["src"]
-}
+# Supabase Configuration for Vercel / Production Deployment
+VITE_SUPABASE_URL="https://your-supabase-project.supabase.co"
+VITE_SUPABASE_ANON_KEY="your-supabase-anon-key"
+
+# GEMINI_API_KEY: Optional if using Gemini API server-side
+GEMINI_API_KEY=""

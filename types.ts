@@ -1,137 +1,357 @@
-import React from 'react';
-import { SkillNode, XPConfig, getSkillXpCost } from '../types';
-import { ELEMENTS } from '../data/rpgData';
-import { IconHelper } from './IconHelper';
-import { Lock, Check, Sparkles, Crown } from 'lucide-react';
+export type DesignioRank = 'D' | 'C' | 'B' | 'A' | 'S';
 
-interface SkillNodeItemProps {
-  skill: SkillNode;
-  isUnlocked: boolean;
-  isAvailable: boolean;
-  onSelect: (skill: SkillNode) => void;
-  onQuickToggle: (e: React.MouseEvent, skillId: string) => void;
-  xpConfig?: XPConfig;
+export interface DesignioDefinition {
+  id: string;
+  name: string;
+  rank: DesignioRank;
+  prerequisiteId?: string;
+  prerequisiteLevel?: number;
+  pvs?: number;
+  pms?: number;
+  ataque?: number;
+  defesa?: number;
+  atqEspecial?: number;
+  defEspecial?: number;
+  velAtq?: number;
+  velMov?: number;
+  velEspecial?: number;
+  dCrit?: number;
+  regeneracao?: number;
+  description: string;
 }
 
-export const SkillNodeItem: React.FC<SkillNodeItemProps> = ({
-  skill,
-  isUnlocked,
-  isAvailable,
-  onSelect,
-  onQuickToggle,
-  xpConfig,
-}) => {
-  const elemDef = ELEMENTS[skill.elementId];
-  const skillXpCost = getSkillXpCost(skill, xpConfig);
+export const DESIGNIOS_LIST: DesignioDefinition[] = [
+  // Categoria D (Básicos)
+  {
+    id: 'coragem',
+    name: 'Coragem',
+    rank: 'D',
+    pvs: 4,
+    pms: 2,
+    ataque: 2,
+    description: 'Aumenta PVs +4, PMs +2 e Ataque +2.',
+  },
+  {
+    id: 'energia',
+    name: 'Energia',
+    rank: 'D',
+    pvs: 1,
+    pms: 5,
+    atqEspecial: 1,
+    defEspecial: 1,
+    description: 'Aumenta PVs +1, PMs +5, Atq.Esp +1 e Def.Esp +1.',
+  },
+  {
+    id: 'determinacao',
+    name: 'Determinação',
+    rank: 'D',
+    pvs: 6,
+    pms: 1,
+    defesa: 1,
+    description: 'Aumenta PVs +6, PMs +1 e Defesa +1.',
+  },
+  {
+    id: 'oportuno',
+    name: 'Oportuno',
+    rank: 'D',
+    pvs: 3,
+    pms: 2,
+    velAtq: 2,
+    velMov: 1,
+    description: 'Aumenta PVs +3, PMs +2, Vel.Atq +2 e Vel.Mov +1.',
+  },
+  {
+    id: 'equilibrio',
+    name: 'Equilíbrio',
+    rank: 'D',
+    pvs: 2,
+    pms: 2,
+    ataque: 1,
+    defesa: 1,
+    atqEspecial: 1,
+    defEspecial: 1,
+    description: 'Aumenta PVs +2, PMs +2, Ataque +1, Defesa +1, Atq.Esp +1 e Def.Esp +1.',
+  },
 
-  return (
-    <div className="relative group flex flex-col items-center">
-      {/* Node Container Card */}
-      <button
-        onClick={() => onSelect(skill)}
-        className={`relative flex flex-col items-center justify-between p-2 sm:p-3 rounded-2xl transition-all duration-300 border backdrop-blur-md cursor-pointer select-none ${
-          skill.isUltimate ? 'w-full max-w-[220px] sm:w-56 p-3 sm:p-4 min-h-[100px] sm:min-h-[110px]' : 'w-28 xs:w-32 sm:w-40 min-h-[90px] sm:min-h-[96px]'
-        } ${
-          isUnlocked
-            ? 'bg-zinc-900/90 shadow-xl border-amber-500/50 hover:scale-[1.03] ring-1 ring-amber-500/30'
-            : isAvailable
-            ? 'bg-zinc-900/60 border-zinc-700 hover:border-amber-400/80 hover:bg-zinc-800/80 hover:scale-[1.02] shadow-md'
-            : 'bg-zinc-950/80 border-zinc-900 text-zinc-600 opacity-60 hover:opacity-80'
-        }`}
-        style={{
-          boxShadow: isUnlocked
-            ? `0 0 20px ${elemDef.colorHex}35`
-            : isAvailable
-            ? `0 0 10px ${elemDef.colorHex}15`
-            : 'none',
-        }}
-      >
-        {/* Top Badges Bar */}
-        <div className="w-full flex items-center justify-between gap-1 text-[10px]">
-          <span
-            className="px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider text-[9px]"
-            style={{
-              backgroundColor: `${elemDef.colorHex}20`,
-              color: isUnlocked ? '#fef08a' : elemDef.colorHex,
-            }}
-          >
-            T{skill.tier} • Ranks D-S
-          </span>
+  // Categoria C (Requer Nível 5 do Desígnio Rank D correspondente)
+  {
+    id: 'destemido',
+    name: 'Destemido',
+    rank: 'C',
+    prerequisiteId: 'coragem',
+    prerequisiteLevel: 5,
+    pvs: 6,
+    pms: 3,
+    ataque: 4,
+    defesa: 1,
+    dCrit: 2,
+    description: 'Aumenta PVs +6, PMs +3, Ataque +4, Defesa +1 e D.Crit +2. (Requer Nível 5 de Coragem)',
+  },
+  {
+    id: 'caos',
+    name: 'Caos',
+    rank: 'C',
+    prerequisiteId: 'energia',
+    prerequisiteLevel: 5,
+    pvs: 2,
+    pms: 8,
+    atqEspecial: 3,
+    defEspecial: 3,
+    description: 'Aumenta PVs +2, PMs +8, Atq.Esp +3 e Def.Esp +3. (Requer Nível 5 de Energia)',
+  },
+  {
+    id: 'inabalavel',
+    name: 'Inabalável',
+    rank: 'C',
+    prerequisiteId: 'determinacao',
+    prerequisiteLevel: 5,
+    pvs: 8,
+    pms: 2,
+    defesa: 4,
+    defEspecial: 2,
+    description: 'Aumenta PVs +8, PMs +2, Defesa +4 e Def.Esp +2. (Requer Nível 5 de Determinação)',
+  },
+  {
+    id: 'sagaz',
+    name: 'Sagaz',
+    rank: 'C',
+    prerequisiteId: 'oportuno',
+    prerequisiteLevel: 5,
+    pvs: 5,
+    pms: 4,
+    velAtq: 3,
+    velMov: 2,
+    dCrit: 2,
+    description: 'Aumenta PVs +5, PMs +4, Vel.Atq +3, Vel.Mov +2 e D.Crit +2. (Requer Nível 5 de Oportuno)',
+  },
+  {
+    id: 'sincronia',
+    name: 'Sincronia',
+    rank: 'C',
+    prerequisiteId: 'equilibrio',
+    prerequisiteLevel: 5,
+    pvs: 4,
+    pms: 4,
+    ataque: 2,
+    defesa: 2,
+    atqEspecial: 2,
+    defEspecial: 2,
+    description: 'Aumenta PVs +4, PMs +4, Ataque +2, Defesa +2, Atq.Esp +2 e Def.Esp +2. (Requer Nível 5 de Equilíbrio)',
+  },
 
-          <span className="truncate text-zinc-400 font-medium text-[9px] max-w-[80px]">
-            {skill.type}
-          </span>
+  // Categoria B (Requer Nível 5 do Desígnio Rank C correspondente)
+  {
+    id: 'feroz',
+    name: 'Feroz',
+    rank: 'B',
+    prerequisiteId: 'destemido',
+    prerequisiteLevel: 5,
+    pvs: 8,
+    pms: 4,
+    ataque: 6,
+    defesa: 2,
+    dCrit: 3,
+    velAtq: 1,
+    description: 'Aumenta PVs +8, PMs +4, Ataque +6, Defesa +2, D.Crit +3 e Vel.Atq +1. (Requer Nível 5 de Destemido)',
+  },
+  {
+    id: 'destruicao',
+    name: 'Destruição',
+    rank: 'B',
+    prerequisiteId: 'caos',
+    prerequisiteLevel: 5,
+    pvs: 3,
+    pms: 10,
+    atqEspecial: 5,
+    defEspecial: 5,
+    velEspecial: 1,
+    description: 'Aumenta PVs +3, PMs +10, Atq.Esp +5, Def.Esp +5 e Vel.Esp +1. (Requer Nível 5 de Caos)',
+  },
+  {
+    id: 'colosso',
+    name: 'Colosso',
+    rank: 'B',
+    prerequisiteId: 'inabalavel',
+    prerequisiteLevel: 5,
+    pvs: 11,
+    pms: 3,
+    defesa: 6,
+    defEspecial: 4,
+    description: 'Aumenta PVs +11, PMs +3, Defesa +6 e Def.Esp +4. (Requer Nível 5 de Inabalável)',
+  },
+  {
+    id: 'anonimo',
+    name: 'Anônimo',
+    rank: 'B',
+    prerequisiteId: 'sagaz',
+    prerequisiteLevel: 5,
+    pvs: 6,
+    pms: 5,
+    velAtq: 5,
+    velMov: 4,
+    dCrit: 4,
+    description: 'Aumenta PVs +6, PMs +5, Vel.Atq +5, Vel.Mov +4 e D.Crit +4. (Requer Nível 5 de Sagaz)',
+  },
+  {
+    id: 'sinergia',
+    name: 'Sinergia',
+    rank: 'B',
+    prerequisiteId: 'sincronia',
+    prerequisiteLevel: 5,
+    pvs: 5,
+    pms: 5,
+    ataque: 3,
+    defesa: 3,
+    atqEspecial: 3,
+    defEspecial: 3,
+    velAtq: 1,
+    velMov: 1,
+    description: 'Aumenta PVs +5, PMs +5, Ataque +3, Defesa +3, Atq.Esp +3, Def.Esp +3, Vel.Atq +1 e Vel.Mov +1. (Requer Nível 5 de Sincronia)',
+  },
 
-          {isUnlocked ? (
-            <span className="p-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
-              <Check size={10} />
-            </span>
-          ) : !isAvailable ? (
-            <span className="p-1 rounded-full bg-zinc-900 text-zinc-600">
-              <Lock size={10} />
-            </span>
-          ) : (
-            <span className="px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30 font-mono">
-              {skillXpCost} XP
-            </span>
-          )}
-        </div>
+  // Categoria A (Requer Nível 5 do Desígnio Rank B correspondente)
+  {
+    id: 'implacavel',
+    name: 'Implacável',
+    rank: 'A',
+    prerequisiteId: 'feroz',
+    prerequisiteLevel: 5,
+    pvs: 10,
+    pms: 5,
+    ataque: 8,
+    defesa: 4,
+    dCrit: 5,
+    velAtq: 2,
+    description: 'Aumenta PVs +10, PMs +5, Ataque +8, Defesa +4, D.Crit +5 e Vel.Atq +2. (Requer Nível 5 de Feroz)',
+  },
+  {
+    id: 'poder',
+    name: 'Poder',
+    rank: 'A',
+    prerequisiteId: 'destruicao',
+    prerequisiteLevel: 5,
+    pvs: 4,
+    pms: 14,
+    atqEspecial: 7,
+    defEspecial: 7,
+    velEspecial: 2,
+    description: 'Aumenta PVs +4, PMs +14, Atq.Esp +7, Def.Esp +7 e Vel.Esp +2. (Requer Nível 5 de Destruição)',
+  },
+  {
+    id: 'titanico',
+    name: 'Titânico',
+    rank: 'A',
+    prerequisiteId: 'colosso',
+    prerequisiteLevel: 5,
+    pvs: 15,
+    pms: 4,
+    defesa: 9,
+    defEspecial: 6,
+    description: 'Aumenta PVs +15, PMs +4, Defesa +9 e Def.Esp +6. (Requer Nível 5 de Colosso)',
+  },
+  {
+    id: 'sombra',
+    name: 'Sombra',
+    rank: 'A',
+    prerequisiteId: 'anonimo',
+    prerequisiteLevel: 5,
+    pvs: 7,
+    pms: 6,
+    velAtq: 7,
+    velMov: 6,
+    dCrit: 8,
+    description: 'Aumenta PVs +7, PMs +6, Vel.Atq +7, Vel.Mov +6 e D.Crit +8. (Requer Nível 5 de Anônimo)',
+  },
+  {
+    id: 'absoluto',
+    name: 'Absoluto',
+    rank: 'A',
+    prerequisiteId: 'sinergia',
+    prerequisiteLevel: 5,
+    pvs: 7,
+    pms: 7,
+    ataque: 4,
+    defesa: 4,
+    atqEspecial: 4,
+    defEspecial: 4,
+    velAtq: 2,
+    velMov: 2,
+    description: 'Aumenta PVs +7, PMs +7, Ataque +4, Defesa +4, Atq.Esp +4, Def.Esp +4, Vel.Atq +2 e Vel.Mov +2. (Requer Nível 5 de Sinergia)',
+  },
 
-        {/* Central Icon & Title */}
-        <div className="my-1.5 flex flex-col items-center text-center gap-1">
-          <div
-            className={`p-2 rounded-xl transition-transform ${
-              skill.isUltimate ? 'p-2.5 shadow-lg' : ''
-            }`}
-            style={{
-              backgroundColor: isUnlocked ? `${elemDef.colorHex}30` : 'rgba(24, 24, 27, 0.8)',
-              color: isUnlocked ? '#ffffff' : isAvailable ? elemDef.colorHex : '#71717a',
-            }}
-          >
-            {skill.isUltimate ? (
-              <Crown className="w-6 h-6 animate-pulse text-amber-400" />
-            ) : (
-              <IconHelper name={elemDef.iconName} size={skill.isUltimate ? 24 : 18} />
-            )}
-          </div>
+  // Categoria S (Requer Nível 5 do Desígnio Rank A correspondente)
+  {
+    id: 'guerra',
+    name: 'Guerra',
+    rank: 'S',
+    prerequisiteId: 'implacavel',
+    prerequisiteLevel: 5,
+    pvs: 14,
+    pms: 6,
+    ataque: 13,
+    defesa: 6,
+    dCrit: 8,
+    velAtq: 4,
+    description: 'Aumenta PVs +14, PMs +6, Ataque +13, Defesa +6, D.Crit +8 e Vel.Atq +4. (Requer Nível 5 de Implacável)',
+  },
+  {
+    id: 'supremo',
+    name: 'Supremo',
+    rank: 'S',
+    prerequisiteId: 'poder',
+    prerequisiteLevel: 5,
+    pvs: 5,
+    pms: 18,
+    atqEspecial: 11,
+    defEspecial: 11,
+    velEspecial: 5,
+    description: 'Aumenta PVs +5, PMs +18, Atq.Esp +11, Def.Esp +11 e Vel.Esp +5. (Requer Nível 5 de Poder)',
+  },
+  {
+    id: 'invicto',
+    name: 'Invicto',
+    rank: 'S',
+    prerequisiteId: 'titanico',
+    prerequisiteLevel: 5,
+    pvs: 20,
+    pms: 5,
+    defesa: 13,
+    defEspecial: 11,
+    regeneracao: 1,
+    description: 'Aumenta PVs +20, PMs +5, Defesa +13, Def.Esp +11 e Regeneração +1. (Requer Nível 5 de Titânico)',
+  },
+  {
+    id: 'vacuo',
+    name: 'Vácuo',
+    rank: 'S',
+    prerequisiteId: 'sombra',
+    prerequisiteLevel: 5,
+    pvs: 9,
+    pms: 7,
+    velAtq: 12,
+    velMov: 10,
+    dCrit: 12,
+    description: 'Aumenta PVs +9, PMs +7, Vel.Atq +12, Vel.Mov +10 e D.Crit +12. (Requer Nível 5 de Sombra)',
+  },
+  {
+    id: 'unico',
+    name: 'Único',
+    rank: 'S',
+    prerequisiteId: 'absoluto',
+    prerequisiteLevel: 5,
+    pvs: 9,
+    pms: 9,
+    ataque: 6,
+    defesa: 6,
+    atqEspecial: 6,
+    defEspecial: 6,
+    velAtq: 4,
+    velMov: 4,
+    description: 'Aumenta PVs +9, PMs +9, Ataque +6, Defesa +6, Atq.Esp +6, Def.Esp +6, Vel.Atq +4 e Vel.Mov +4. (Requer Nível 5 de Absoluto)',
+  },
+];
 
-          <h5
-            className={`font-semibold line-clamp-2 leading-snug transition-colors ${
-              skill.isUltimate ? 'text-xs sm:text-sm text-amber-300 font-extrabold' : 'text-[11px] sm:text-xs'
-            } ${
-              isUnlocked
-                ? 'text-zinc-100 font-bold'
-                : isAvailable
-                ? 'text-zinc-200'
-                : 'text-zinc-500'
-            }`}
-          >
-            {skill.name}
-          </h5>
-        </div>
-
-        {/* Bottom Dice & Mana indicator */}
-        <div className="w-full pt-1 border-t border-zinc-800/60 flex items-center justify-between text-[9px] text-zinc-400">
-          <span className="truncate font-mono text-amber-400/90">{skill.diceRoll}</span>
-          <span>{skill.manaCost > 0 ? `${skill.manaCost}PM` : ''}</span>
-        </div>
-      </button>
-
-      {/* Quick Action Overlay on Hover */}
-      <div className="absolute -bottom-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-        <button
-          onClick={(e) => onQuickToggle(e, skill.id)}
-          className={`px-2 py-0.5 rounded-full text-[9px] font-bold shadow-md transition-all ${
-            isUnlocked
-              ? 'bg-red-500 hover:bg-red-600 text-white'
-              : isAvailable
-              ? 'bg-emerald-500 hover:bg-emerald-400 text-zinc-950 scale-105'
-              : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
-          }`}
-        >
-          {isUnlocked ? 'Esquecer' : 'Aprender'}
-        </button>
-      </div>
-    </div>
-  );
-};
+export const DESIGNIOS_MAP: Record<string, DesignioDefinition> = DESIGNIOS_LIST.reduce((acc, des) => {
+  acc[des.id] = des;
+  return acc;
+}, {} as Record<string, DesignioDefinition>);

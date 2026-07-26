@@ -1,6 +1,10 @@
-# Supabase Configuration for Vercel / Production Deployment
-VITE_SUPABASE_URL="https://your-supabase-project.supabase.co"
-VITE_SUPABASE_ANON_KEY="your-supabase-anon-key"
+/// <reference types="vite/client" />
 
-# GEMINI_API_KEY: Optional if using Gemini API server-side
-GEMINI_API_KEY=""
+interface ImportMetaEnv {
+  readonly VITE_SUPABASE_URL?: string;
+  readonly VITE_SUPABASE_ANON_KEY?: string;
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}

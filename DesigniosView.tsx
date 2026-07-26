@@ -1,1147 +1,1023 @@
-import React, { useState, useMemo } from 'react';
-import { AnimalDefinition, CharacterAttributes, SkillNode, SkillRank, XPConfig, getDesignioXpCost, PurchasedCombatStats } from '../types';
-import { ELEMENTS } from '../data/rpgData';
-import { DESIGNIOS_LIST, DESIGNIOS_MAP, DesignioRank, DesignioDefinition } from '../data/designiosData';
-import { IconHelper } from './IconHelper';
-import { getCombatStatCost, getSkillNextUpgradeCost } from '../utils/xpUtils';
-import { BookOpen, Dices, Download, Printer, Copy, Check, Sparkles, Shield, Zap, Crown, Plus, Minus, Heart, Flame, Activity, ShieldAlert, FastForward, Swords, Coins, Settings, Compass, Award } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { XPConfig, DEFAULT_XP_CONFIG, DEFAULT_TIER_RANK_XP_COSTS, DEFAULT_DESIGNIO_RANK_XP_COSTS } from '../types';
+import { DesignioDefinition, DesignioRank, DESIGNIOS_LIST } from '../data/designiosData';
+import { UserAccount } from './LoginScreen';
+import { X, Shield, Sparkles, Settings, UserCheck, Plus, RotateCcw, Check, Zap, Coins, Compass, Pencil, Trash2, Copy, Search, Save, Award, ArrowLeft } from 'lucide-react';
 
-interface CharacterSheetViewProps {
-  characterName: string;
-  onCharacterNameChange: (name: string) => void;
-  animal: AnimalDefinition;
-  attributes: CharacterAttributes;
-  onAttributesChange: (attrs: CharacterAttributes) => void;
-  purchasedCombatStats?: PurchasedCombatStats;
-  onCombatStatChange?: (statKey: keyof PurchasedCombatStats, delta: number) => void;
-  userSkillRanks?: Record<string, SkillRank>;
-  onUpgradeSkillRank?: (skillId: string) => void;
-  unlockedSkills: SkillNode[];
-  onTestRollSkill: (skill: SkillNode) => void;
-  notes: string;
-  onNotesChange: (notes: string) => void;
-  xpTotal: number;
-  xpSpent: number;
-  xpAvailable: number;
+interface AdminPanelModalProps {
+  isOpen: boolean;
+  onClose: () => void;
   xpConfig: XPConfig;
-  userDesignios?: Record<string, number>;
-  onDesignioLevelChange?: (designioId: string, delta: number) => void;
-  userRole?: string;
-  onOpenAdminPanel?: () => void;
-  isAdmin?: boolean;
+  onSaveXPConfig: (newConfig: XPConfig) => void;
+  allAccounts: UserAccount[];
+  onUpdateAccountXP: (username: string, newTotalXp: number, role?: 'player' | 'admin') => void;
+  currentUser: UserAccount;
   designiosList?: DesignioDefinition[];
-  onNavigateToDesignios?: () => void;
+  onSaveDesignios?: (updatedList: DesignioDefinition[]) => void;
 }
 
-export const CharacterSheetView: React.FC<CharacterSheetViewProps> = ({
-  characterName,
-  onCharacterNameChange,
-  animal,
-  attributes,
-  onAttributesChange,
-  purchasedCombatStats,
-  onCombatStatChange,
-  userSkillRanks = {},
-  onUpgradeSkillRank,
-  unlockedSkills,
-  onTestRollSkill,
-  notes,
-  onNotesChange,
-  xpTotal,
-  xpSpent,
-  xpAvailable,
+export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
+  isOpen,
+  onClose,
   xpConfig,
-  userDesignios = {},
-  onDesignioLevelChange,
-  userRole,
-  onOpenAdminPanel,
-  isAdmin,
-  designiosList,
-  onNavigateToDesignios,
+  onSaveXPConfig,
+  allAccounts = [],
+  onUpdateAccountXP,
+  currentUser,
+  designiosList = [],
+  onSaveDesignios,
 }) => {
-  const [copiedText, setCopiedText] = useState(false);
-  const [designioFilter, setDesignioFilter] = useState<'ALL' | DesignioRank>('ALL');
+  if (!isOpen) return null;
 
-  // Dynamic desígnios list and map
-  const activeDesigniosList = useMemo(() => {
-    return designiosList && designiosList.length > 0 ? designiosList : DESIGNIOS_LIST;
+  const safeAccounts = allAccounts || [];
+  const safeCurrentUser = currentUser || { username: 'Guest', characterName: 'Mestre', animalId: 'leao', createdAt: '' };
+
+  const [activeTab, setActiveTab] = useState<'costs' | 'designios' | 'players'>('costs');
+
+  // Local Desígnios management state
+  const [localDesignios, setLocalDesignios] = useState<DesignioDefinition[]>(
+    designiosList && designiosList.length > 0 ? designiosList : DESIGNIOS_LIST
+  );
+
+  useEffect(() => {
+    if (designiosList && designiosList.length > 0) {
+      setLocalDesignios(designiosList);
+    }
   }, [designiosList]);
 
-  // Only habilitated (acquired) desígnios for the character sheet
-  const enabledDesigniosList = useMemo(() => {
-    return activeDesigniosList.filter((des) => (userDesignios[des.id] || 0) > 0);
-  }, [activeDesigniosList, userDesignios]);
+  const [editingDes, setEditingDes] = useState<DesignioDefinition | null>(null);
+  const [isCreatingNewDes, setIsCreatingNewDes] = useState<boolean>(false);
+  const [desSearchQuery, setDesSearchQuery] = useState<string>('');
+  const [desRankFilter, setDesRankFilter] = useState<'ALL' | DesignioRank>('ALL');
 
-  const activeDesigniosMap = useMemo(() => {
-    return activeDesigniosList.reduce((acc, des) => {
-      acc[des.id] = des;
-      return acc;
-    }, {} as Record<string, DesignioDefinition>);
-  }, [activeDesigniosList]);
+  // Costs form state
+  const [attrCosts, setAttrCosts] = useState({
+    forca: xpConfig.attributeCosts?.forca ?? xpConfig.costPerAttributePoint ?? 100,
+    destreza: xpConfig.attributeCosts?.destreza ?? xpConfig.costPerAttributePoint ?? 100,
+    constituicao: xpConfig.attributeCosts?.constituicao ?? xpConfig.costPerAttributePoint ?? 100,
+    poder: xpConfig.attributeCosts?.poder ?? xpConfig.costPerAttributePoint ?? 100,
+  });
 
-  // Group unlocked skills by action type
-  const mainActions = unlockedSkills.filter((s) => s.type === 'Ação Principal');
-  const bonusActions = unlockedSkills.filter((s) => s.type === 'Ação de Bônus' || s.type === 'Ação de Movimento');
-  const reactions = unlockedSkills.filter((s) => s.type === 'Reação');
-  const passives = unlockedSkills.filter((s) => s.type === 'Passiva');
-  const ultimates = unlockedSkills.filter((s) => s.type === 'Suprema');
+  const [combatCosts, setCombatCosts] = useState({
+    pvs: xpConfig.combatStatCosts?.pvs ?? 50,
+    pms: xpConfig.combatStatCosts?.pms ?? 50,
+    ataque: xpConfig.combatStatCosts?.ataque ?? 80,
+    defesa: xpConfig.combatStatCosts?.defesa ?? 80,
+    atqEspecial: xpConfig.combatStatCosts?.atqEspecial ?? 80,
+    defEspecial: xpConfig.combatStatCosts?.defEspecial ?? 80,
+    velAtq: xpConfig.combatStatCosts?.velAtq ?? 100,
+    velMov: xpConfig.combatStatCosts?.velMov ?? 100,
+    velEspecial: xpConfig.combatStatCosts?.velEspecial ?? 100,
+    critico: xpConfig.combatStatCosts?.critico ?? 150,
+    velocidade: xpConfig.combatStatCosts?.velocidade ?? 100,
+  });
 
-  // Compute Desígnios bonuses
-  const totalDesignioBonus = useMemo(() => {
-    const bonus = {
-      pvs: 0,
-      pms: 0,
-      ataque: 0,
-      defesa: 0,
-      atqEspecial: 0,
-      defEspecial: 0,
-      velAtq: 0,
-      velMov: 0,
-      velEspecial: 0,
-      dCrit: 0,
-      regeneracao: 0,
+  const [tierCosts, setTierCosts] = useState<Record<number, number>>({
+    1: xpConfig.tierXpCosts[1] ?? 50,
+    2: xpConfig.tierXpCosts[2] ?? 100,
+    3: xpConfig.tierXpCosts[3] ?? 200,
+    4: xpConfig.tierXpCosts[4] ?? 350,
+    5: xpConfig.tierXpCosts[5] ?? 500,
+    6: xpConfig.tierXpCosts[6] ?? 1000,
+  });
+
+  const [tierRankCosts, setTierRankCosts] = useState<Record<string, number>>(() => {
+    return {
+      ...DEFAULT_TIER_RANK_XP_COSTS,
+      ...(xpConfig.tierRankXpCosts || {}),
     };
+  });
 
-    Object.entries(userDesignios || {}).forEach(([id, level]) => {
-      const lvl = Number(level) || 0;
-      if (lvl <= 0) return;
-      const des = activeDesigniosMap[id];
-      if (!des) return;
+  const [designioRankCosts, setDesignioRankCosts] = useState<Record<string, number>>(() => {
+    return {
+      ...DEFAULT_DESIGNIO_RANK_XP_COSTS,
+      ...(xpConfig.designioRankXpCosts || {}),
+    };
+  });
 
-      if (des.pvs) bonus.pvs += des.pvs * lvl;
-      if (des.pms) bonus.pms += des.pms * lvl;
-      if (des.ataque) bonus.ataque += des.ataque * lvl;
-      if (des.defesa) bonus.defesa += des.defesa * lvl;
-      if (des.atqEspecial) bonus.atqEspecial += des.atqEspecial * lvl;
-      if (des.defEspecial) bonus.defEspecial += des.defEspecial * lvl;
-      if (des.velAtq) bonus.velAtq += des.velAtq * lvl;
-      if (des.velMov) bonus.velMov += des.velMov * lvl;
-      if (des.velEspecial) bonus.velEspecial += des.velEspecial * lvl;
-      if (des.dCrit) bonus.dCrit += des.dCrit * lvl;
-      if (des.regeneracao) bonus.regeneracao += des.regeneracao * lvl;
+  const [savedSuccessMsg, setSavedSuccessMsg] = useState<string | null>(null);
+
+  // Player XP adjustment state
+  const [selectedUsername, setSelectedUsername] = useState<string>(
+    safeAccounts[0]?.username || safeCurrentUser.username
+  );
+  const [addXpAmount, setAddXpAmount] = useState<number>(100);
+
+  const selectedAccount = safeAccounts.find((a) => a.username === selectedUsername) || safeCurrentUser;
+
+  const handleSaveCosts = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSaveXPConfig({
+      costPerAttributePoint: attrCosts.forca,
+      attributeCosts: attrCosts,
+      combatStatCosts: combatCosts,
+      tierXpCosts: tierCosts,
+      tierRankXpCosts: tierRankCosts,
+      designioRankXpCosts: designioRankCosts,
     });
-
-    return bonus;
-  }, [userDesignios, activeDesigniosMap]);
-
-  // Attribute allocation rules using XP
-  const getAttrCost = (key: keyof CharacterAttributes) => {
-    return xpConfig.attributeCosts?.[key] ?? xpConfig.costPerAttributePoint ?? 100;
+    setSavedSuccessMsg('Configurações de custos de XP salvas com sucesso!');
+    setTimeout(() => setSavedSuccessMsg(null), 3000);
   };
 
-  const handleModifyAttribute = (key: keyof CharacterAttributes, delta: number) => {
-    const currentVal = attributes[key];
-    const newVal = currentVal + delta;
-    const cost = getAttrCost(key);
-
-    if (newVal < 0) return;
-    if (delta > 0 && xpAvailable < cost) return; // Must have available XP
-
-    onAttributesChange({
-      ...attributes,
-      [key]: newVal,
+  const handleResetCosts = () => {
+    setAttrCosts(DEFAULT_XP_CONFIG.attributeCosts);
+    setCombatCosts({
+      pvs: DEFAULT_XP_CONFIG.combatStatCosts.pvs,
+      pms: DEFAULT_XP_CONFIG.combatStatCosts.pms,
+      ataque: DEFAULT_XP_CONFIG.combatStatCosts.ataque,
+      defesa: DEFAULT_XP_CONFIG.combatStatCosts.defesa,
+      atqEspecial: DEFAULT_XP_CONFIG.combatStatCosts.atqEspecial,
+      defEspecial: DEFAULT_XP_CONFIG.combatStatCosts.defEspecial,
+      velAtq: DEFAULT_XP_CONFIG.combatStatCosts.velAtq,
+      velMov: DEFAULT_XP_CONFIG.combatStatCosts.velMov,
+      velEspecial: DEFAULT_XP_CONFIG.combatStatCosts.velEspecial,
+      critico: DEFAULT_XP_CONFIG.combatStatCosts.critico ?? 150,
+      velocidade: DEFAULT_XP_CONFIG.combatStatCosts.velocidade ?? 100,
     });
+    setTierCosts(DEFAULT_XP_CONFIG.tierXpCosts);
+    setTierRankCosts(DEFAULT_TIER_RANK_XP_COSTS);
+    setDesignioRankCosts(DEFAULT_DESIGNIO_RANK_XP_COSTS);
+    onSaveXPConfig(DEFAULT_XP_CONFIG);
+    setSavedSuccessMsg('Custos restaurados para os valores padrão!');
+    setTimeout(() => setSavedSuccessMsg(null), 3000);
   };
 
-  // Purchased combat stats default fallback
-  const purchased = purchasedCombatStats || {
-    pvs: 0,
-    pms: 0,
-    ataque: 0,
-    atqEspecial: 0,
-    defesa: 0,
-    defEspecial: 0,
-    critico: 0,
-    velAtq: 0,
-    velMov: 0,
-    velEspecial: 0,
+  const handleGiveXp = (amount: number) => {
+    const currentXp = selectedAccount.xpTotal ?? 1000;
+    const newTotal = Math.max(0, currentXp + amount);
+    onUpdateAccountXP(selectedAccount.username, newTotal);
   };
 
-  // Derived Secondary Stats Calculations with Desígnios Bonuses and XP-Purchased Stats
-  const pvs = 20 + attributes.constituicao + totalDesignioBonus.pvs + (purchased.pvs || 0);
-  const pms = 20 + attributes.poder + totalDesignioBonus.pms + (purchased.pms || 0);
-  const ataque = attributes.forca + attributes.destreza + totalDesignioBonus.ataque + (purchased.ataque || 0);
-  const defesa = attributes.constituicao + attributes.forca + totalDesignioBonus.defesa + (purchased.defesa || 0);
-  const atqEspecial = attributes.poder + (animal.weapon === 'Arco' || animal.weapon === 'Adagas' ? attributes.destreza : attributes.forca) + totalDesignioBonus.atqEspecial + (purchased.atqEspecial || 0);
-  const defEspecial = attributes.poder + attributes.constituicao + totalDesignioBonus.defEspecial + (purchased.defEspecial || 0);
-  const velAtaque = attributes.destreza + totalDesignioBonus.velAtq + (purchased.velAtq || 0);
-  const velMovimento = attributes.destreza + totalDesignioBonus.velMov + (purchased.velMov || 0);
-  const deslocamentoMetros = 3 + velMovimento; // Regra: 3m base + 1m por ponto extra em vel. movimento
-  const velEspecial = attributes.poder + totalDesignioBonus.velEspecial + (purchased.velEspecial || 0);
+  const handleToggleRole = () => {
+    const newRole = selectedAccount.role === 'admin' ? 'player' : 'admin';
+    onUpdateAccountXP(selectedAccount.username, selectedAccount.xpTotal ?? 1000, newRole);
+  };
 
-  // Copy build summary to clipboard
-  const handleCopyBuild = () => {
-    let summaryText = `=== FICHA DE PERSONAGEM - RPG DE MESA ===\n`;
-    summaryText += `Nome: ${characterName || 'Guardião Sem Nome'}\n`;
-    summaryText += `Guardião Animal: ${animal.name} (${animal.weapon})\n`;
-    summaryText += `XP Total: ${xpTotal} | XP Gastos: ${xpSpent} | XP Livre: ${xpAvailable}\n\n`;
-    summaryText += `--- ATRIBUTOS BASE ---\n`;
-    summaryText += `Força: ${attributes.forca} | Destreza: ${attributes.destreza} | Constituição: ${attributes.constituicao} | Poder: ${attributes.poder}\n\n`;
-    summaryText += `--- ESTATÍSTICAS DE COMBATE DERIVADAS ---\n`;
-    summaryText += `PVs (Vida): ${pvs} (20 + CON)\n`;
-    summaryText += `PMs (Mana): ${pms} (20 + POD)\n`;
-    summaryText += `Ataque: +${ataque} (FOR + DES)\n`;
-    summaryText += `Defesa: +${defesa} (CON + FOR)\n`;
-    summaryText += `Ataque Especial: +${atqEspecial} (POD + FOR/DES)\n`;
-    summaryText += `Defesa Especial: +${defEspecial} (POD + CON)\n`;
-    summaryText += `Velocidades: Atq +${velAtaque} | Mov +${velMovimento} (Deslocamento ${deslocamentoMetros}m) | Esp +${velEspecial}\n\n`;
-    summaryText += `--- DESÍGNIOS ADQUIRIDOS & EVOLUÍDOS ---\n`;
-    const activeDesignios = Object.entries(userDesignios || {}).filter(([_, lvl]) => Number(lvl) > 0);
-    if (activeDesignios.length === 0) {
-      summaryText += `Nenhum Desígnio adquirido.\n\n`;
+  // Desígnio management handlers
+  const handleStartEditDes = (des: DesignioDefinition) => {
+    setEditingDes({ ...des });
+    setIsCreatingNewDes(false);
+  };
+
+  const handleStartCreateDes = () => {
+    setEditingDes({
+      id: `custom_des_${Date.now()}`,
+      name: 'Novo Desígnio',
+      rank: 'D',
+      description: 'Aumenta PVs +2, PMs +2.',
+      pvs: 2,
+      pms: 2,
+    });
+    setIsCreatingNewDes(true);
+  };
+
+  const handleSaveSingleDes = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDes || !editingDes.name.trim()) return;
+
+    let updated: DesignioDefinition[];
+    if (isCreatingNewDes) {
+      updated = [...localDesignios, editingDes];
     } else {
-      activeDesignios.forEach(([id, lvl]) => {
-        const des = activeDesigniosMap[id];
-        if (des) {
-          summaryText += `- ${des.name} [Rank ${des.rank}] (Nível ${lvl}): ${des.description}\n`;
-        }
-      });
-      summaryText += `\n`;
+      updated = localDesignios.map((d) => (d.id === editingDes.id ? editingDes : d));
     }
 
-    summaryText += `--- GRIMÓRIO DE HABILIDADES DEBLOQUEADAS (${unlockedSkills.length}) ---\n`;
-
-    unlockedSkills.forEach((s, idx) => {
-      summaryText += `${idx + 1}. ${s.name} [Rank ${s.rank || 'D'}] [${s.type}] - Dado: ${s.diceRoll} (${s.manaCost} PMs, ${s.cooldownRec || s.cooldown})\n`;
-      summaryText += `   Efeito: ${s.description}\n\n`;
-    });
-
-    navigator.clipboard.writeText(summaryText);
-    setCopiedText(true);
-    setTimeout(() => setCopiedText(false), 2500);
+    setLocalDesignios(updated);
+    onSaveDesignios?.(updated);
+    setEditingDes(null);
+    setIsCreatingNewDes(false);
+    setSavedSuccessMsg(`Desígnio "${editingDes.name}" salvo com sucesso!`);
+    setTimeout(() => setSavedSuccessMsg(null), 3000);
   };
 
-  // Export JSON file
-  const handleExportJSON = () => {
-    const data = {
-      characterName,
-      animalId: animal.id,
-      xpTotal,
-      xpSpent,
-      xpAvailable,
-      attributes,
-      derivedStats: { pvs, pms, ataque, defesa, atqEspecial, defEspecial, velAtaque, velMovimento, velEspecial },
-      unlockedSkillIds: unlockedSkills.map((s) => s.id),
-      notes,
-      exportedAt: new Date().toISOString(),
+  const handleDeleteDes = (id: string, name: string) => {
+    if (!window.confirm(`Tem certeza que deseja excluir o desígnio "${name}"?`)) return;
+    const updated = localDesignios.filter((d) => d.id !== id);
+    setLocalDesignios(updated);
+    onSaveDesignios?.(updated);
+    setSavedSuccessMsg(`Desígnio "${name}" removido com sucesso.`);
+    setTimeout(() => setSavedSuccessMsg(null), 3000);
+  };
+
+  const handleDuplicateDes = (des: DesignioDefinition) => {
+    const clone: DesignioDefinition = {
+      ...des,
+      id: `${des.id}_copia_${Date.now()}`,
+      name: `${des.name} (Cópia)`,
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${characterName || 'personagem'}_${animal.id}_xp${xpTotal}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const updated = [...localDesignios, clone];
+    setLocalDesignios(updated);
+    onSaveDesignios?.(updated);
+    setSavedSuccessMsg(`Cópia criada: "${clone.name}".`);
+    setTimeout(() => setSavedSuccessMsg(null), 3000);
+  };
+
+  const handleResetAllDes = () => {
+    if (!window.confirm('Restaurar todos os Desígnios para a lista padrão do sistema? Alterações e novos desígnios serão resetados.')) return;
+    setLocalDesignios(DESIGNIOS_LIST);
+    onSaveDesignios?.(DESIGNIOS_LIST);
+    setSavedSuccessMsg('Lista de Desígnios restaurada para os padrões originais!');
+    setTimeout(() => setSavedSuccessMsg(null), 3000);
+  };
+
+  // Helper for status badge styling by rank
+  const rankStyles: Record<DesignioRank, { border: string; bg: string; text: string; badge: string }> = {
+    D: { border: 'border-zinc-800', bg: 'bg-zinc-950/80', text: 'text-zinc-300', badge: 'bg-zinc-900 text-zinc-300 border-zinc-700' },
+    C: { border: 'border-cyan-800/50', bg: 'bg-cyan-950/10', text: 'text-cyan-300', badge: 'bg-cyan-950/80 text-cyan-300 border-cyan-800' },
+    B: { border: 'border-purple-800/50', bg: 'bg-purple-950/10', text: 'text-purple-300', badge: 'bg-purple-950/80 text-purple-300 border-purple-800' },
+    A: { border: 'border-amber-800/50', bg: 'bg-amber-950/10', text: 'text-amber-300', badge: 'bg-amber-950/80 text-amber-300 border-amber-800' },
+    S: { border: 'border-red-800/50', bg: 'bg-red-950/10', text: 'text-red-300', badge: 'bg-red-950/80 text-red-300 border-red-800' },
   };
 
   return (
-    <div className="space-y-4 sm:space-y-6">
-      {/* Printable Sheet Wrapper */}
-      <div className="p-3 sm:p-6 bg-zinc-950/90 border border-zinc-800 rounded-2xl shadow-xl space-y-4 sm:space-y-6">
-        {/* Top Header Controls */}
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-4 sm:pb-6 border-b border-zinc-800">
-          <div className="flex items-center gap-3 w-full md:w-auto">
-            <div
-              className="p-2.5 sm:p-3 rounded-2xl border text-white shadow-lg shrink-0"
-              style={{
-                backgroundColor: `${animal.color}20`,
-                borderColor: `${animal.color}50`,
-                color: animal.color,
-              }}
-            >
-              <IconHelper name={animal.iconName} size={28} className="sm:hidden" />
-              <IconHelper name={animal.iconName} size={32} className="hidden sm:block" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in font-sans">
+      <div className="relative w-full max-w-4xl bg-zinc-950 border border-amber-500/30 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        {/* Header */}
+        <div className="p-5 bg-gradient-to-r from-amber-950/60 via-zinc-900 to-zinc-950 border-b border-zinc-800 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-amber-500/20 border border-amber-500/40 text-amber-400 rounded-xl">
+              <Shield size={24} />
             </div>
-
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={characterName}
-                  onChange={(e) => onCharacterNameChange(e.target.value)}
-                  placeholder="Nome do Personagem..."
-                  className="w-full text-lg sm:text-2xl font-bold bg-zinc-900 border border-zinc-800 rounded-xl px-2.5 sm:px-3 py-1 text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500 truncate"
-                />
-              </div>
-              <p className="text-[11px] sm:text-xs text-zinc-400 mt-1 truncate">
-                Guardião <strong className="text-zinc-200">{animal.name}</strong> • Arma: <strong className="text-amber-400">{animal.weapon}</strong>
-              </p>
-            </div>
-          </div>
-
-          {/* XP Summary Card & Admin Panel Trigger */}
-          <div className="flex items-center gap-2 sm:gap-3 flex-wrap w-full md:w-auto justify-between md:justify-end">
-            <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 bg-zinc-900/90 border border-amber-500/30 rounded-xl shadow-md w-full sm:w-auto justify-around">
-              <Coins className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400 animate-pulse shrink-0" />
-              <div className="flex items-baseline gap-2 sm:gap-3 text-xs font-mono">
-                <div>
-                  <span className="text-[9px] sm:text-[10px] text-zinc-400 block uppercase font-bold">XP Disponível</span>
-                  <span className="text-sm sm:text-base font-black text-amber-300">{xpAvailable} XP</span>
-                </div>
-                <div className="text-zinc-600">|</div>
-                <div>
-                  <span className="text-[9px] sm:text-[10px] text-zinc-400 block uppercase font-bold">XP Gastos</span>
-                  <span className="text-xs font-bold text-zinc-400">{xpSpent} XP</span>
-                </div>
-                <div className="text-zinc-600">|</div>
-                <div>
-                  <span className="text-[9px] sm:text-[10px] text-zinc-400 block uppercase font-bold">XP Total</span>
-                  <span className="text-xs font-bold text-emerald-400">{xpTotal} XP</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
-              {onOpenAdminPanel && userRole === 'admin' && (
-                <button
-                  onClick={onOpenAdminPanel}
-                  className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/50 text-xs font-bold flex items-center gap-1.5 transition-all shadow-md min-h-[38px]"
-                >
-                  <Settings size={14} />
-                  <span>Mestre (ADM)</span>
-                </button>
-              )}
-
-              <button
-                onClick={handleCopyBuild}
-                className="flex-1 sm:flex-initial px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors min-h-[38px]"
-              >
-                {copiedText ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
-                <span>{copiedText ? 'Copiado!' : 'Copiar'}</span>
-              </button>
-
-              <button
-                onClick={handleExportJSON}
-                className="flex-1 sm:flex-initial px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors min-h-[38px]"
-              >
-                <Download size={14} />
-                <span>Exportar</span>
-              </button>
-
-              <button
-                onClick={() => window.print()}
-                className="flex-1 sm:flex-initial px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-md min-h-[38px]"
-              >
-                <Printer size={14} />
-                <span>Imprimir</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* 1. SEÇÃO CARACTERÍSTICAS */}
-        <div className="p-5 bg-zinc-900/90 border border-zinc-800 rounded-2xl space-y-5">
-          <div className="flex flex-wrap items-center justify-between border-b border-zinc-800/80 pb-3 gap-2">
             <div>
-              <h3 className="text-base font-black text-amber-400 uppercase tracking-wider flex items-center gap-2">
-                <Activity size={20} className="text-amber-400" />
-                Características Base do Personagem
-              </h3>
-              <p className="text-xs text-zinc-400 mt-0.5">
-                Evolua suas características gastando Pontos de Experiência (XP). Custos definidos pelo Mestre.
+              <h2 className="text-lg font-black text-zinc-100 uppercase tracking-wide flex items-center gap-2">
+                Painel do Mestre (ADM)
+              </h2>
+              <p className="text-xs text-zinc-400">
+                Gerencie regras de custos, crie e edite Desígnios e ajuste XP dos jogadores
               </p>
             </div>
-
-            <div className="px-3 py-1.5 rounded-xl border border-amber-500/30 bg-amber-950/20 text-xs font-bold font-mono text-amber-400 flex items-center gap-1.5">
-              <Coins size={14} />
-              <span>XP Livre: {xpAvailable} XP</span>
-            </div>
           </div>
 
-          {/* Atributos Quatro Básicos */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-            {/* Força */}
-            <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800/90 flex items-center justify-between shadow-inner">
-              <div>
-                <span className="text-xs font-bold text-red-400 block uppercase tracking-wide">Força (FOR)</span>
-                <span className="text-[10px] text-zinc-500 block">Ataque Físico & Impacto</span>
-                <span className="text-[10px] font-mono text-amber-400/90 font-semibold">{getAttrCost('forca')} XP / pt</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleModifyAttribute('forca', -1)}
-                  disabled={attributes.forca <= 0}
-                  className="w-8 h-8 rounded-lg bg-zinc-900 hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-zinc-300 border border-zinc-800 text-xs font-bold"
-                >
-                  <Minus size={14} />
-                </button>
-                <span className="w-6 text-center font-black text-lg text-zinc-100 font-mono">{attributes.forca}</span>
-                <button
-                  onClick={() => handleModifyAttribute('forca', 1)}
-                  disabled={xpAvailable < getAttrCost('forca')}
-                  title={xpAvailable < getAttrCost('forca') ? `Necessário ${getAttrCost('forca')} XP` : `Aumentar (+${getAttrCost('forca')} XP)`}
-                  className="w-8 h-8 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-amber-400 border border-amber-500/30 text-xs font-bold"
-                >
-                  <Plus size={14} />
-                </button>
-              </div>
-            </div>
-
-            {/* Destreza */}
-            <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800/90 flex items-center justify-between shadow-inner">
-              <div>
-                <span className="text-xs font-bold text-cyan-400 block uppercase tracking-wide">Destreza (DES)</span>
-                <span className="text-[10px] text-zinc-500 block">Precisão, Esquiva & Vel</span>
-                <span className="text-[10px] font-mono text-amber-400/90 font-semibold">{getAttrCost('destreza')} XP / pt</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleModifyAttribute('destreza', -1)}
-                  disabled={attributes.destreza <= 0}
-                  className="w-8 h-8 rounded-lg bg-zinc-900 hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-zinc-300 border border-zinc-800 text-xs font-bold"
-                >
-                  <Minus size={14} />
-                </button>
-                <span className="w-6 text-center font-black text-lg text-zinc-100 font-mono">{attributes.destreza}</span>
-                <button
-                  onClick={() => handleModifyAttribute('destreza', 1)}
-                  disabled={xpAvailable < getAttrCost('destreza')}
-                  title={xpAvailable < getAttrCost('destreza') ? `Necessário ${getAttrCost('destreza')} XP` : `Aumentar (+${getAttrCost('destreza')} XP)`}
-                  className="w-8 h-8 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-amber-400 border border-amber-500/30 text-xs font-bold"
-                >
-                  <Plus size={14} />
-                </button>
-              </div>
-            </div>
-
-            {/* Constituição */}
-            <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800/90 flex items-center justify-between shadow-inner">
-              <div>
-                <span className="text-xs font-bold text-emerald-400 block uppercase tracking-wide">Constituição (CON)</span>
-                <span className="text-[10px] text-zinc-500 block">Vida Max & Defesa</span>
-                <span className="text-[10px] font-mono text-amber-400/90 font-semibold">{getAttrCost('constituicao')} XP / pt</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleModifyAttribute('constituicao', -1)}
-                  disabled={attributes.constituicao <= 0}
-                  className="w-8 h-8 rounded-lg bg-zinc-900 hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-zinc-300 border border-zinc-800 text-xs font-bold"
-                >
-                  <Minus size={14} />
-                </button>
-                <span className="w-6 text-center font-black text-lg text-zinc-100 font-mono">{attributes.constituicao}</span>
-                <button
-                  onClick={() => handleModifyAttribute('constituicao', 1)}
-                  disabled={xpAvailable < getAttrCost('constituicao')}
-                  title={xpAvailable < getAttrCost('constituicao') ? `Necessário ${getAttrCost('constituicao')} XP` : `Aumentar (+${getAttrCost('constituicao')} XP)`}
-                  className="w-8 h-8 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-amber-400 border border-amber-500/30 text-xs font-bold"
-                >
-                  <Plus size={14} />
-                </button>
-              </div>
-            </div>
-
-            {/* Poder */}
-            <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800/90 flex items-center justify-between shadow-inner">
-              <div>
-                <span className="text-xs font-bold text-purple-400 block uppercase tracking-wide">Poder (POD)</span>
-                <span className="text-[10px] text-zinc-500 block">Mana Max & Casting</span>
-                <span className="text-[10px] font-mono text-amber-400/90 font-semibold">{getAttrCost('poder')} XP / pt</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleModifyAttribute('poder', -1)}
-                  disabled={attributes.poder <= 0}
-                  className="w-8 h-8 rounded-lg bg-zinc-900 hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-zinc-300 border border-zinc-800 text-xs font-bold"
-                >
-                  <Minus size={14} />
-                </button>
-                <span className="w-6 text-center font-black text-lg text-zinc-100 font-mono">{attributes.poder}</span>
-                <button
-                  onClick={() => handleModifyAttribute('poder', 1)}
-                  disabled={xpAvailable < getAttrCost('poder')}
-                  title={xpAvailable < getAttrCost('poder') ? `Necessário ${getAttrCost('poder')} XP` : `Aumentar (+${getAttrCost('poder')} XP)`}
-                  className="w-8 h-8 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-amber-400 border border-amber-500/30 text-xs font-bold"
-                >
-                  <Plus size={14} />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Reservas de Vida (PV) e Mana (PM) Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-            {/* Pontos de Vida (PV) */}
-            <div className="p-4 bg-red-950/20 border border-red-500/30 rounded-xl flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-red-500/20 rounded-xl text-red-400 border border-red-500/40 shrink-0">
-                  <Heart size={24} />
-                </div>
-                <div>
-                  <span className="text-xs font-bold text-red-300 uppercase tracking-wider block">Pontos de Vida (PV)</span>
-                  <span className="text-[10px] text-zinc-400">20 Base + CON({attributes.constituicao}) {purchased.pvs > 0 ? `+ ${purchased.pvs} XP` : ''}</span>
-                  <span className="text-[10px] font-mono text-amber-400/90 font-semibold block">{getCombatStatCost('pvs', xpConfig)} XP / PV</span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <div className="text-right">
-                  <span className="text-2xl font-black text-red-400 font-mono">{pvs}</span>
-                  <span className="text-[10px] text-zinc-500 block">PVs Máximos</span>
-                </div>
-
-                {onCombatStatChange && (
-                  <div className="flex items-center gap-1.5 pl-3 border-l border-red-500/20">
-                    <button
-                      type="button"
-                      onClick={() => onCombatStatChange('pvs', -1)}
-                      disabled={purchased.pvs <= 0}
-                      className="w-8 h-8 rounded-lg bg-zinc-900 hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-zinc-300 border border-zinc-800 text-xs font-bold"
-                      title="Diminuir 1 PV"
-                    >
-                      <Minus size={14} />
-                    </button>
-                    <span className="w-6 text-center font-black text-sm text-red-300 font-mono">
-                      +{purchased.pvs}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => onCombatStatChange('pvs', 1)}
-                      disabled={xpAvailable < getCombatStatCost('pvs', xpConfig)}
-                      className="w-8 h-8 rounded-lg bg-red-500/20 hover:bg-red-500/30 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-red-300 border border-red-500/30 text-xs font-bold"
-                      title={xpAvailable < getCombatStatCost('pvs', xpConfig) ? `Necessário ${getCombatStatCost('pvs', xpConfig)} XP` : `Aumentar 1 PV (+${getCombatStatCost('pvs', xpConfig)} XP)`}
-                    >
-                      <Plus size={14} />
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Pontos de Mana (PM) */}
-            <div className="p-4 bg-blue-950/20 border border-blue-500/30 rounded-xl flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-blue-500/20 rounded-xl text-blue-400 border border-blue-500/40 shrink-0">
-                  <Zap size={24} />
-                </div>
-                <div>
-                  <span className="text-xs font-bold text-blue-300 uppercase tracking-wider block">Pontos de Mana (PM)</span>
-                  <span className="text-[10px] text-zinc-400">20 Base + POD({attributes.poder}) {purchased.pms > 0 ? `+ ${purchased.pms} XP` : ''}</span>
-                  <span className="text-[10px] font-mono text-amber-400/90 font-semibold block">{getCombatStatCost('pms', xpConfig)} XP / PM</span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <div className="text-right">
-                  <span className="text-2xl font-black text-blue-400 font-mono">{pms}</span>
-                  <span className="text-[10px] text-zinc-500 block">PMs Máximos</span>
-                </div>
-
-                {onCombatStatChange && (
-                  <div className="flex items-center gap-1.5 pl-3 border-l border-blue-500/20">
-                    <button
-                      type="button"
-                      onClick={() => onCombatStatChange('pms', -1)}
-                      disabled={purchased.pms <= 0}
-                      className="w-8 h-8 rounded-lg bg-zinc-900 hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-zinc-300 border border-zinc-800 text-xs font-bold"
-                      title="Diminuir 1 PM"
-                    >
-                      <Minus size={14} />
-                    </button>
-                    <span className="w-6 text-center font-black text-sm text-blue-300 font-mono">
-                      +{purchased.pms}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => onCombatStatChange('pms', 1)}
-                      disabled={xpAvailable < getCombatStatCost('pms', xpConfig)}
-                      className="w-8 h-8 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-blue-300 border border-blue-500/30 text-xs font-bold"
-                      title={xpAvailable < getCombatStatCost('pms', xpConfig) ? `Necessário ${getCombatStatCost('pms', xpConfig)} XP` : `Aumentar 1 PM (+${getCombatStatCost('pms', xpConfig)} XP)`}
-                    >
-                      <Plus size={14} />
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+          <button
+            onClick={onClose}
+            className="p-2 text-zinc-400 hover:text-white rounded-lg bg-zinc-900/80 border border-zinc-800 hover:bg-zinc-800 transition-colors"
+          >
+            <X size={18} />
+          </button>
         </div>
 
-        {/* 2. SEÇÃO COMBATE */}
-        <div className="p-5 bg-zinc-900/90 border border-zinc-800 rounded-2xl space-y-4">
-          <div className="border-b border-zinc-800/80 pb-3">
-            <h3 className="text-base font-black text-amber-400 uppercase tracking-wider flex items-center gap-2">
-              <Swords size={20} className="text-amber-400" />
-              Estatísticas de Combate & Velocidades
-            </h3>
-            <p className="text-xs text-zinc-400 mt-0.5">
-              Valores calculados para testes de ataque, defesas, margem de crítico e tempos de ação em rodada
-            </p>
-          </div>
+        {/* Tab switch */}
+        <div className="grid grid-cols-3 p-2 bg-zinc-900/60 border-b border-zinc-800 gap-1">
+          <button
+            onClick={() => { setActiveTab('costs'); setEditingDes(null); }}
+            className={`py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+              activeTab === 'costs'
+                ? 'bg-amber-500 text-zinc-950 shadow-md shadow-amber-500/20'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Settings size={14} />
+            <span className="hidden sm:inline">Tabela de Custos de XP</span>
+            <span className="sm:hidden">Custos</span>
+          </button>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5">
-            {/* Ataque */}
-            <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800/90 flex flex-col justify-between">
-              <span className="text-xs font-bold text-amber-400 uppercase tracking-wide flex items-center gap-1.5">
-                <Swords size={14} className="text-amber-400" /> Ataque
-              </span>
-              <div className="my-2">
-                <strong className="text-2xl font-black text-amber-300 font-mono">+{ataque}</strong>
-                {purchased.ataque > 0 && <span className="text-xs text-amber-500 font-bold ml-1.5">(+{purchased.ataque} XP)</span>}
-              </div>
-              <span className="text-[10px] text-zinc-500">Força({attributes.forca}) + Destreza({attributes.destreza})</span>
-            </div>
+          <button
+            onClick={() => setActiveTab('designios')}
+            className={`py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+              activeTab === 'designios'
+                ? 'bg-amber-500 text-zinc-950 shadow-md shadow-amber-500/20'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Compass size={14} />
+            <span>Editar Desígnios</span>
+          </button>
 
-            {/* Ataque Especial */}
-            <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800/90 flex flex-col justify-between">
-              <span className="text-xs font-bold text-purple-400 uppercase tracking-wide flex items-center gap-1.5">
-                <Flame size={14} className="text-purple-400" /> Ataque Especial
-              </span>
-              <div className="my-2">
-                <strong className="text-2xl font-black text-purple-300 font-mono">+{atqEspecial}</strong>
-                {purchased.atqEspecial > 0 && <span className="text-xs text-purple-500 font-bold ml-1.5">(+{purchased.atqEspecial} XP)</span>}
-              </div>
-              <span className="text-[10px] text-zinc-500">Poder({attributes.poder}) + Modificadores</span>
-            </div>
+          <button
+            onClick={() => { setActiveTab('players'); setEditingDes(null); }}
+            className={`py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+              activeTab === 'players'
+                ? 'bg-amber-500 text-zinc-950 shadow-md shadow-amber-500/20'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <UserCheck size={14} />
+            <span className="hidden sm:inline">XP dos Jogadores</span>
+            <span className="sm:hidden">Jogadores</span>
+          </button>
+        </div>
 
-            {/* Defesa */}
-            <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800/90 flex flex-col justify-between">
-              <span className="text-xs font-bold text-emerald-400 uppercase tracking-wide flex items-center gap-1.5">
-                <Shield size={14} className="text-emerald-400" /> Defesa
-              </span>
-              <div className="my-2">
-                <strong className="text-2xl font-black text-emerald-300 font-mono">+{defesa}</strong>
-                {purchased.defesa > 0 && <span className="text-xs text-emerald-500 font-bold ml-1.5">(+{purchased.defesa} XP)</span>}
-              </div>
-              <span className="text-[10px] text-zinc-500">Constituição({attributes.constituicao}) + Força({attributes.forca})</span>
-            </div>
-
-            {/* Defesa Especial */}
-            <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800/90 flex flex-col justify-between">
-              <span className="text-xs font-bold text-cyan-400 uppercase tracking-wide flex items-center gap-1.5">
-                <ShieldAlert size={14} className="text-cyan-400" /> Defesa Especial
-              </span>
-              <div className="my-2">
-                <strong className="text-2xl font-black text-cyan-300 font-mono">+{defEspecial}</strong>
-                {purchased.defEspecial > 0 && <span className="text-xs text-cyan-500 font-bold ml-1.5">(+{purchased.defEspecial} XP)</span>}
-              </div>
-              <span className="text-[10px] text-zinc-500">Poder({attributes.poder}) + Constituição({attributes.constituicao})</span>
-            </div>
-
-            {/* Dano Crítico Base */}
-            <div className="p-4 bg-amber-950/20 border border-amber-500/40 rounded-xl flex flex-col justify-between col-span-2 sm:col-span-1 lg:col-span-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-amber-400 uppercase tracking-wide flex items-center gap-1.5">
-                  <Sparkles size={14} className="text-amber-400" /> Dano Crítico Extra
-                </span>
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
-                  Gatilho: Face Máx.
-                </span>
-              </div>
-              <div className="my-2 grid grid-cols-3 gap-2 text-center">
-                <div className="p-1.5 bg-zinc-950/80 rounded-lg border border-zinc-800">
-                  <span className="text-[9px] text-zinc-400 block font-bold">FOR (Físico)</span>
-                  <strong className="text-sm font-black text-red-400 font-mono">+{attributes.forca}</strong>
-                </div>
-                <div className="p-1.5 bg-zinc-950/80 rounded-lg border border-zinc-800">
-                  <span className="text-[9px] text-zinc-400 block font-bold">DES (Ágil)</span>
-                  <strong className="text-sm font-black text-cyan-400 font-mono">+{attributes.destreza}</strong>
-                </div>
-                <div className="p-1.5 bg-zinc-950/80 rounded-lg border border-zinc-800">
-                  <span className="text-[9px] text-zinc-400 block font-bold">POD (Mágico)</span>
-                  <strong className="text-sm font-black text-purple-400 font-mono">+{attributes.poder}</strong>
-                </div>
-              </div>
-              <span className="text-[10px] text-zinc-400">
-                Acerto automático! Crítico ativa ao tirar máx. no dado (Ex: 8 no 1d8).
-              </span>
-            </div>
-
-            {/* Velocidade de Ataque */}
-            <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800/90 flex flex-col justify-between">
-              <span className="text-xs font-bold text-cyan-300 uppercase tracking-wide flex items-center gap-1.5">
-                <FastForward size={14} className="text-cyan-400" /> Vel. Ataque
-              </span>
-              <div className="my-2">
-                <strong className="text-2xl font-black text-cyan-200 font-mono">+{velAtaque}</strong>
-                {purchased.velAtq > 0 && <span className="text-xs text-cyan-500 font-bold ml-1.5">(+{purchased.velAtq} XP)</span>}
-              </div>
-              <span className="text-[10px] text-zinc-500">Iniciativa / Agilidade (DES)</span>
-            </div>
-
-            {/* Velocidade de Movimento */}
-            <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800/90 flex flex-col justify-between">
-              <span className="text-xs font-bold text-emerald-300 uppercase tracking-wide flex items-center gap-1.5">
-                <FastForward size={14} className="text-emerald-400" /> Vel. Movimento
-              </span>
-              <div className="my-2 flex items-baseline gap-2">
-                <strong className="text-2xl font-black text-emerald-200 font-mono">+{velMovimento}</strong>
-                <span className="text-xs font-bold text-emerald-400 font-mono">({deslocamentoMetros}m)</span>
-                {purchased.velMov > 0 && <span className="text-xs text-emerald-500 font-bold">(+{purchased.velMov} XP)</span>}
-              </div>
-              <span className="text-[10px] text-zinc-500">Deslocamento: 3m + 1m por ponto em Vel</span>
-            </div>
-
-            {/* Velocidade de Casting */}
-            <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800/90 flex flex-col justify-between">
-              <span className="text-xs font-bold text-purple-300 uppercase tracking-wide flex items-center gap-1.5">
-                <FastForward size={14} className="text-purple-400" /> Vel. Casting
-              </span>
-              <div className="my-2">
-                <strong className="text-2xl font-black text-purple-200 font-mono">+{velEspecial}</strong>
-                {purchased.velEspecial > 0 && <span className="text-xs text-purple-500 font-bold ml-1.5">(+{purchased.velEspecial} XP)</span>}
-              </div>
-              <span className="text-[10px] text-zinc-500">Conjuração Magias (Poder)</span>
-            </div>
-          </div>
-
-          {/* Sub-painel: Compra Direta de Estatísticas por XP */}
-          {onCombatStatChange && (
-            <div className="mt-4 pt-4 border-t border-zinc-800/80 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-                    <Coins size={14} />
-                    Evolução de Atributos de Combate por XP
-                  </h4>
-                  <p className="text-[10px] text-zinc-400">
-                    Compre pontos adicionais para customizar os atributos do seu personagem usando XP livre.
-                  </p>
-                </div>
-                <span className="text-xs font-mono font-bold text-amber-300 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/30">
-                  XP Livre: {xpAvailable} XP
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 gap-2.5">
-                {[
-                  { key: 'ataque' as const, label: 'Ataque Físico', cost: getCombatStatCost('ataque', xpConfig), val: purchased.ataque },
-                  { key: 'atqEspecial' as const, label: 'Atq. Especial', cost: getCombatStatCost('atqEspecial', xpConfig), val: purchased.atqEspecial },
-                  { key: 'defesa' as const, label: 'Defesa Física', cost: getCombatStatCost('defesa', xpConfig), val: purchased.defesa },
-                  { key: 'defEspecial' as const, label: 'Def. Especial', cost: getCombatStatCost('defEspecial', xpConfig), val: purchased.defEspecial },
-                  { key: 'critico' as const, label: 'Bônus Crítico', cost: getCombatStatCost('critico', xpConfig), val: purchased.critico },
-                  { key: 'velAtq' as const, label: 'Vel. Ataque', cost: getCombatStatCost('velAtq', xpConfig), val: purchased.velAtq },
-                  { key: 'velMov' as const, label: 'Vel. Movimento', cost: getCombatStatCost('velMov', xpConfig), val: purchased.velMov },
-                  { key: 'velEspecial' as const, label: 'Vel. Casting', cost: getCombatStatCost('velEspecial', xpConfig), val: purchased.velEspecial },
-                ].map((st) => {
-                  const canAfford = xpAvailable >= st.cost;
-                  return (
-                    <div
-                      key={st.key}
-                      className="p-2.5 bg-zinc-950/80 rounded-xl border border-zinc-800 flex items-center justify-between gap-1"
-                    >
-                      <div>
-                        <span className="text-[10px] font-bold text-zinc-300 block leading-none">{st.label}</span>
-                        <span className="text-[9px] text-zinc-500 font-mono">{st.cost} XP/pt</span>
-                      </div>
-
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => onCombatStatChange(st.key, -1)}
-                          disabled={st.val <= 0}
-                          className="w-5 h-5 rounded bg-zinc-900 hover:bg-zinc-800 disabled:opacity-20 text-zinc-400 flex items-center justify-center border border-zinc-800 text-xs"
-                        >
-                          -
-                        </button>
-                        <span className="w-5 text-center font-bold text-xs font-mono text-amber-400">
-                          +{st.val}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => onCombatStatChange(st.key, 1)}
-                          disabled={!canAfford}
-                          className="w-5 h-5 rounded bg-amber-500/20 hover:bg-amber-500/30 disabled:opacity-20 text-amber-400 flex items-center justify-center border border-amber-500/30 text-xs"
-                          title={canAfford ? `Comprar 1 ponto (+${st.cost} XP)` : `Sem XP suficiente`}
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+        {/* Content area */}
+        <div className="p-6 overflow-y-auto space-y-6">
+          {savedSuccessMsg && (
+            <div className="p-3 bg-emerald-950/60 border border-emerald-500/50 rounded-xl text-emerald-300 text-xs font-semibold flex items-center gap-2">
+              <Check size={16} />
+              <span>{savedSuccessMsg}</span>
             </div>
           )}
-        </div>
 
-        {/* 3. SEÇÃO DESÍGNIOS DO GUARDIÃO (HABILITADOS) */}
-        <div className="p-5 bg-zinc-900/90 border border-zinc-800 rounded-2xl space-y-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-3">
-            <div>
-              <h3 className="text-base font-black text-amber-400 uppercase tracking-wider flex items-center gap-2">
-                <Compass size={20} className="text-amber-400" />
-                Desígnios Habilitados ({enabledDesigniosList.length})
-              </h3>
-              <p className="text-xs text-zinc-400 mt-0.5">
-                Fortalecimentos passivos ativos no personagem. Acesse a aba <strong className="text-amber-400">Desígnios</strong> para adquirir ou alterar.
-              </p>
-            </div>
+          {activeTab === 'costs' && (
+            <form onSubmit={handleSaveCosts} className="space-y-6">
+              {/* Primary Attributes XP Costs */}
+              <div className="p-4 bg-zinc-900/80 border border-zinc-800 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-amber-300 uppercase tracking-wide flex items-center gap-1.5">
+                    <Zap size={14} className="text-amber-400" />
+                    Custos por Atributo Primário (+1 Ponto)
+                  </label>
+                  <span className="text-[10px] text-zinc-400 font-mono">FOR, DES, CON, POD</span>
+                </div>
 
-            {/* Rank Filter Tabs */}
-            {enabledDesigniosList.length > 0 && (
-              <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800/80 self-start sm:self-auto overflow-x-auto max-w-full">
-                {[
-                  { rank: 'ALL', label: 'Todos' },
-                  { rank: 'D', label: 'Rank D' },
-                  { rank: 'C', label: 'Rank C' },
-                  { rank: 'B', label: 'Rank B' },
-                  { rank: 'A', label: 'Rank A' },
-                  { rank: 'S', label: 'Rank S' },
-                ].map(({ rank, label }) => (
-                  <button
-                    key={rank}
-                    onClick={() => setDesignioFilter(rank as any)}
-                    className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all whitespace-nowrap ${
-                      designioFilter === rank
-                        ? 'bg-amber-500 text-zinc-950 shadow'
-                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="p-3 bg-zinc-950 rounded-xl border border-zinc-800 flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-red-400 block">Força (FOR)</span>
+                      <span className="text-[10px] text-zinc-500">Ataque Físico & Dano</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min="1"
+                        max="10000"
+                        value={attrCosts.forca}
+                        onChange={(e) => setAttrCosts({ ...attrCosts, forca: Number(e.target.value) })}
+                        className="w-20 px-2 py-1 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-mono font-bold text-amber-400 text-right focus:outline-none focus:border-amber-500"
+                      />
+                      <span className="text-[10px] text-zinc-500 font-mono">XP</span>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-zinc-950 rounded-xl border border-zinc-800 flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-cyan-400 block">Destreza (DES)</span>
+                      <span className="text-[10px] text-zinc-500">Precisão & Velocidade</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min="1"
+                        max="10000"
+                        value={attrCosts.destreza}
+                        onChange={(e) => setAttrCosts({ ...attrCosts, destreza: Number(e.target.value) })}
+                        className="w-20 px-2 py-1 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-mono font-bold text-amber-400 text-right focus:outline-none focus:border-amber-500"
+                      />
+                      <span className="text-[10px] text-zinc-500 font-mono">XP</span>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-zinc-950 rounded-xl border border-zinc-800 flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-emerald-400 block">Constituição (CON)</span>
+                      <span className="text-[10px] text-zinc-500">Pontos de Vida & Defesa</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min="1"
+                        max="10000"
+                        value={attrCosts.constituicao}
+                        onChange={(e) => setAttrCosts({ ...attrCosts, constituicao: Number(e.target.value) })}
+                        className="w-20 px-2 py-1 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-mono font-bold text-amber-400 text-right focus:outline-none focus:border-amber-500"
+                      />
+                      <span className="text-[10px] text-zinc-500 font-mono">XP</span>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-zinc-950 rounded-xl border border-zinc-800 flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-purple-400 block">Poder (POD)</span>
+                      <span className="text-[10px] text-zinc-500">Pontos de Mana & Magia</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min="1"
+                        max="10000"
+                        value={attrCosts.poder}
+                        onChange={(e) => setAttrCosts({ ...attrCosts, poder: Number(e.target.value) })}
+                        className="w-20 px-2 py-1 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-mono font-bold text-amber-400 text-right focus:outline-none focus:border-amber-500"
+                      />
+                      <span className="text-[10px] text-zinc-500 font-mono">XP</span>
+                    </div>
+                  </div>
+                </div>
               </div>
-            )}
-          </div>
 
-          {/* Desígnios List Grid or Empty State */}
-          {enabledDesigniosList.length === 0 ? (
-            <div className="p-6 bg-zinc-950/60 border border-zinc-800/80 rounded-xl text-center space-y-3">
-              <Compass className="w-8 h-8 text-amber-500/60 mx-auto" />
-              <h4 className="text-sm font-bold text-zinc-300">Nenhum Desígnio Habilitado</h4>
-              <p className="text-xs text-zinc-400 max-w-md mx-auto leading-relaxed">
-                Seu personagem ainda não possui Desígnios ativos. Acesse a aba de <strong className="text-amber-400">Desígnios</strong> no menu superior para escolher e evoluir os fortalecimentos com seus pontos de XP!
-              </p>
-              {onNavigateToDesignios && (
+              {/* Combat Stats XP Costs */}
+              <div className="p-4 bg-zinc-900/80 border border-zinc-800 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-amber-300 uppercase tracking-wide flex items-center gap-1.5">
+                    <Shield size={14} className="text-amber-400" />
+                    Custos de XP para Atributos Secundários de Combate
+                  </label>
+                  <span className="text-[10px] text-zinc-400 font-mono">PV, PM, Atq, Def, Vel</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  <div className="p-2.5 bg-zinc-950 rounded-xl border border-zinc-800 flex items-center justify-between">
+                    <span className="text-xs font-bold text-red-300">+10 PVs (Vida)</span>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min="1"
+                        max="10000"
+                        value={combatCosts.pvs}
+                        onChange={(e) => setCombatCosts({ ...combatCosts, pvs: Number(e.target.value) })}
+                        className="w-16 px-2 py-1 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-mono font-bold text-emerald-400 text-right focus:outline-none focus:border-amber-500"
+                      />
+                      <span className="text-[10px] text-zinc-500 font-mono">XP</span>
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 bg-zinc-950 rounded-xl border border-zinc-800 flex items-center justify-between">
+                    <span className="text-xs font-bold text-blue-300">+10 PMs (Mana)</span>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min="1"
+                        max="10000"
+                        value={combatCosts.pms}
+                        onChange={(e) => setCombatCosts({ ...combatCosts, pms: Number(e.target.value) })}
+                        className="w-16 px-2 py-1 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-mono font-bold text-emerald-400 text-right focus:outline-none focus:border-amber-500"
+                      />
+                      <span className="text-[10px] text-zinc-500 font-mono">XP</span>
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 bg-zinc-950 rounded-xl border border-zinc-800 flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-300">+1 Ataque Físico</span>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min="1"
+                        max="10000"
+                        value={combatCosts.ataque}
+                        onChange={(e) => setCombatCosts({ ...combatCosts, ataque: Number(e.target.value) })}
+                        className="w-16 px-2 py-1 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-mono font-bold text-emerald-400 text-right focus:outline-none focus:border-amber-500"
+                      />
+                      <span className="text-[10px] text-zinc-500 font-mono">XP</span>
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 bg-zinc-950 rounded-xl border border-zinc-800 flex items-center justify-between">
+                    <span className="text-xs font-bold text-zinc-300">+1 Defesa Física</span>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min="1"
+                        max="10000"
+                        value={combatCosts.defesa}
+                        onChange={(e) => setCombatCosts({ ...combatCosts, defesa: Number(e.target.value) })}
+                        className="w-16 px-2 py-1 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-mono font-bold text-emerald-400 text-right focus:outline-none focus:border-amber-500"
+                      />
+                      <span className="text-[10px] text-zinc-500 font-mono">XP</span>
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 bg-zinc-950 rounded-xl border border-zinc-800 flex items-center justify-between">
+                    <span className="text-xs font-bold text-purple-300">+1 Atq Especial</span>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min="1"
+                        max="10000"
+                        value={combatCosts.atqEspecial}
+                        onChange={(e) => setCombatCosts({ ...combatCosts, atqEspecial: Number(e.target.value) })}
+                        className="w-16 px-2 py-1 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-mono font-bold text-emerald-400 text-right focus:outline-none focus:border-amber-500"
+                      />
+                      <span className="text-[10px] text-zinc-500 font-mono">XP</span>
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 bg-zinc-950 rounded-xl border border-zinc-800 flex items-center justify-between">
+                    <span className="text-xs font-bold text-cyan-300">+1 Def Especial</span>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min="1"
+                        max="10000"
+                        value={combatCosts.defEspecial}
+                        onChange={(e) => setCombatCosts({ ...combatCosts, defEspecial: Number(e.target.value) })}
+                        className="w-16 px-2 py-1 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-mono font-bold text-emerald-400 text-right focus:outline-none focus:border-amber-500"
+                      />
+                      <span className="text-[10px] text-zinc-500 font-mono">XP</span>
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 bg-zinc-950 rounded-xl border border-zinc-800 flex items-center justify-between sm:col-span-2 lg:col-span-1">
+                    <span className="text-xs font-bold text-teal-300">+1 Velocidade</span>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min="1"
+                        max="10000"
+                        value={combatCosts.velocidade}
+                        onChange={(e) => setCombatCosts({ ...combatCosts, velocidade: Number(e.target.value) })}
+                        className="w-16 px-2 py-1 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-mono font-bold text-emerald-400 text-right focus:outline-none focus:border-amber-500"
+                      />
+                      <span className="text-[10px] text-zinc-500 font-mono">XP</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Skill Tier & Rank XP Costs */}
+              <div className="p-4 bg-zinc-900/80 border border-zinc-800 rounded-xl space-y-4">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-amber-300 uppercase tracking-wide flex items-center gap-1.5">
+                    <Sparkles size={14} className="text-amber-400" />
+                    Custos de XP das Habilidades Separados por Tier e Rank
+                  </label>
+                  <span className="text-[10px] text-zinc-400 font-mono">Tiers 1 a 6 • Ranks D a SS</span>
+                </div>
+
+                <div className="space-y-3">
+                  {[1, 2, 3, 4, 5, 6].map((tier) => (
+                    <div key={tier} className="p-3 bg-zinc-950/90 rounded-xl border border-zinc-800/90 space-y-2.5">
+                      <div className="flex items-center justify-between border-b border-zinc-800/80 pb-1.5">
+                        <span className="text-xs font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                          Tier {tier}
+                        </span>
+                        <span className="text-[10px] text-zinc-500 font-mono">
+                          Configuração Individual por Rank
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+                        {[
+                          { rank: 'D', label: 'Rank D', color: 'text-zinc-300 bg-zinc-900/80 border-zinc-800' },
+                          { rank: 'C', label: 'Rank C', color: 'text-cyan-300 bg-cyan-950/20 border-cyan-800/50' },
+                          { rank: 'B', label: 'Rank B', color: 'text-purple-300 bg-purple-950/20 border-purple-800/50' },
+                          { rank: 'A', label: 'Rank A', color: 'text-amber-300 bg-amber-950/20 border-amber-800/50' },
+                          { rank: 'S', label: 'Rank S', color: 'text-red-300 bg-red-950/20 border-red-800/50' },
+                          { rank: 'SS', label: 'Rank SS', color: 'text-emerald-300 bg-emerald-950/20 border-emerald-800/50' },
+                        ].map(({ rank, label, color }) => {
+                          const key = `${tier}_${rank}`;
+                          const val = tierRankCosts[key] ?? (tier * 100);
+                          return (
+                            <div key={rank} className={`p-2 rounded-lg border ${color} flex flex-col justify-between gap-1`}>
+                              <span className="text-[10px] font-black tracking-wider uppercase">{label}</span>
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="50000"
+                                  value={val}
+                                  onChange={(e) => {
+                                    const num = Number(e.target.value);
+                                    setTierRankCosts((prev) => ({
+                                      ...prev,
+                                      [key]: num,
+                                    }));
+                                  }}
+                                  className="w-full px-1.5 py-1 bg-zinc-950 border border-zinc-800 rounded text-xs font-mono font-bold text-amber-400 text-right focus:outline-none focus:border-amber-500"
+                                />
+                                <span className="text-[9px] text-zinc-500 font-mono">XP</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Desígnios XP Costs by Rank */}
+              <div className="p-4 bg-zinc-900/80 border border-zinc-800 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-amber-300 uppercase tracking-wide flex items-center gap-1.5">
+                    <Compass size={14} className="text-amber-400" />
+                    Custos de XP para Desígnios Separados por Rank
+                  </label>
+                  <span className="text-[10px] text-zinc-400 font-mono">Evolução por Nível de Desígnio</span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                  {[
+                    { rank: 'D', label: 'Rank D', color: 'text-zinc-300 bg-zinc-950 border-zinc-800' },
+                    { rank: 'C', label: 'Rank C', color: 'text-cyan-300 bg-cyan-950/20 border-cyan-800/50' },
+                    { rank: 'B', label: 'Rank B', color: 'text-purple-300 bg-purple-950/20 border-purple-800/50' },
+                    { rank: 'A', label: 'Rank A', color: 'text-amber-300 bg-amber-950/20 border-amber-800/50' },
+                    { rank: 'S', label: 'Rank S', color: 'text-red-300 bg-red-950/20 border-red-800/50' },
+                  ].map(({ rank, label, color }) => {
+                    const val = designioRankCosts[rank] ?? 100;
+                    return (
+                      <div key={rank} className={`p-2.5 rounded-xl border ${color} flex flex-col justify-between gap-1.5`}>
+                        <span className="text-xs font-black tracking-wider uppercase flex items-center justify-between">
+                          <span>{label}</span>
+                          <span className="text-[9px] text-zinc-500 font-normal">por nível</span>
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="number"
+                            min="0"
+                            max="50000"
+                            value={val}
+                            onChange={(e) => {
+                              const num = Number(e.target.value);
+                              setDesignioRankCosts((prev) => ({
+                                ...prev,
+                                [rank]: num,
+                              }));
+                            }}
+                            className="w-full px-2 py-1 bg-zinc-950 border border-zinc-800 rounded-lg text-xs font-mono font-bold text-amber-400 text-right focus:outline-none focus:border-amber-500"
+                          />
+                          <span className="text-[10px] text-zinc-500 font-mono">XP</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-between pt-2">
                 <button
                   type="button"
-                  onClick={onNavigateToDesignios}
-                  className="px-4 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold transition-all inline-flex items-center gap-1.5"
+                  onClick={handleResetCosts}
+                  className="px-4 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 border border-zinc-800 text-xs font-semibold rounded-xl transition-colors flex items-center gap-1.5"
                 >
-                  <Compass size={14} />
-                  <span>Acessar Aba de Desígnios</span>
+                  <RotateCcw size={14} />
+                  <span>Restaurar Padrões</span>
                 </button>
-              )}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-              {enabledDesigniosList
-                .filter((des) => designioFilter === 'ALL' || des.rank === designioFilter)
-                .map((des) => {
-                  const currentLevel = userDesignios[des.id] || 0;
-                  const cost = getDesignioXpCost(des.rank, xpConfig);
-                  const canAfford = xpAvailable >= cost;
 
-                  const rankColors: Record<DesignioRank, { border: string; bg: string; text: string; badge: string }> = {
-                    D: { border: 'border-zinc-800', bg: 'bg-zinc-950/80', text: 'text-zinc-300', badge: 'bg-zinc-900 text-zinc-300 border-zinc-700' },
-                    C: { border: 'border-cyan-800/50', bg: 'bg-cyan-950/10', text: 'text-cyan-300', badge: 'bg-cyan-950/80 text-cyan-300 border-cyan-800' },
-                    B: { border: 'border-purple-800/50', bg: 'bg-purple-950/10', text: 'text-purple-300', badge: 'bg-purple-950/80 text-purple-300 border-purple-800' },
-                    A: { border: 'border-amber-800/50', bg: 'bg-amber-950/10', text: 'text-amber-300', badge: 'bg-amber-950/80 text-amber-300 border-amber-800' },
-                    S: { border: 'border-red-800/50', bg: 'bg-red-950/10', text: 'text-red-300', badge: 'bg-red-950/80 text-red-300 border-red-800' },
-                  };
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-zinc-950 font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-amber-500/20 transition-all flex items-center gap-2"
+                >
+                  <Check size={16} />
+                  <span>Salvar Regras de Custos</span>
+                </button>
+              </div>
+            </form>
+          )}
 
-                  const style = rankColors[des.rank];
-
-                  return (
-                    <div
-                      key={des.id}
-                      className={`p-4 rounded-xl border ${style.border} ${style.bg} flex flex-col justify-between gap-3 transition-all relative group shadow-lg ring-1 ring-amber-500/30`}
-                    >
+          {/* TAB 2: EDITAR DESÍGNIOS */}
+          {activeTab === 'designios' && (
+            <div className="space-y-6">
+              {/* Form view if editing/creating */}
+              {editingDes ? (
+                <form onSubmit={handleSaveSingleDes} className="p-5 bg-zinc-900/90 border border-amber-500/40 rounded-2xl space-y-5 animate-fade-in">
+                  <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditingDes(null)}
+                        className="p-1.5 text-zinc-400 hover:text-white bg-zinc-950 rounded-lg border border-zinc-800"
+                      >
+                        <ArrowLeft size={16} />
+                      </button>
                       <div>
-                        {/* Top Bar: Name + Rank Badge + Level Badge */}
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <div>
-                            <h4 className={`text-sm font-black ${style.text} flex items-center gap-1.5`}>
-                              <Sparkles size={14} className="text-amber-400 shrink-0" />
-                              {des.name}
-                            </h4>
-                            <span className="text-[10px] text-zinc-500 font-mono">Custo: {cost} XP / nível</span>
-                          </div>
-
-                          <div className="flex items-center gap-1.5">
-                            <span className={`px-2 py-0.5 text-[10px] font-black rounded-md border ${style.badge}`}>
-                              Rank {des.rank}
-                            </span>
-                            <span className="px-2 py-0.5 text-[10px] font-black rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
-                              Nív. {currentLevel}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Description & Bonus Stats List */}
-                        <div className="space-y-1.5">
-                          <div className="flex flex-wrap gap-1">
-                            {des.pvs && <span className="px-1.5 py-0.5 rounded bg-red-950/40 text-red-300 border border-red-900/50 text-[10px] font-mono font-bold">PVs +{des.pvs * currentLevel}</span>}
-                            {des.pms && <span className="px-1.5 py-0.5 rounded bg-blue-950/40 text-blue-300 border border-blue-900/50 text-[10px] font-mono font-bold">PMs +{des.pms * currentLevel}</span>}
-                            {des.ataque && <span className="px-1.5 py-0.5 rounded bg-amber-950/40 text-amber-300 border border-amber-900/50 text-[10px] font-mono font-bold">Ataque +{des.ataque * currentLevel}</span>}
-                            {des.defesa && <span className="px-1.5 py-0.5 rounded bg-emerald-950/40 text-emerald-300 border border-emerald-900/50 text-[10px] font-mono font-bold">Defesa +{des.defesa * currentLevel}</span>}
-                            {des.atqEspecial && <span className="px-1.5 py-0.5 rounded bg-purple-950/40 text-purple-300 border border-purple-900/50 text-[10px] font-mono font-bold">Atq.Esp +{des.atqEspecial * currentLevel}</span>}
-                            {des.defEspecial && <span className="px-1.5 py-0.5 rounded bg-cyan-950/40 text-cyan-300 border border-cyan-900/50 text-[10px] font-mono font-bold">Def.Esp +{des.defEspecial * currentLevel}</span>}
-                            {des.velAtq && <span className="px-1.5 py-0.5 rounded bg-cyan-950/40 text-cyan-200 border border-cyan-900/50 text-[10px] font-mono font-bold">Vel.Atq +{des.velAtq * currentLevel}</span>}
-                            {des.velMov && <span className="px-1.5 py-0.5 rounded bg-emerald-950/40 text-emerald-200 border border-emerald-900/50 text-[10px] font-mono font-bold">Vel.Mov +{des.velMov * currentLevel}</span>}
-                            {des.velEspecial && <span className="px-1.5 py-0.5 rounded bg-purple-950/40 text-purple-200 border border-purple-900/50 text-[10px] font-mono font-bold">Vel.Esp +{des.velEspecial * currentLevel}</span>}
-                            {des.dCrit && <span className="px-1.5 py-0.5 rounded bg-amber-950/40 text-amber-200 border border-amber-900/50 text-[10px] font-mono font-bold">D.Crit +{des.dCrit * currentLevel}</span>}
-                            {des.regeneracao && <span className="px-1.5 py-0.5 rounded bg-emerald-950/40 text-emerald-300 border border-emerald-900/50 text-[10px] font-mono font-bold">Regen. +{des.regeneracao * currentLevel}</span>}
-                          </div>
-
-                          <p className="text-[11px] text-zinc-400 leading-relaxed pt-1">
-                            {des.description}
-                            {currentLevel > 1 && (
-                              <span className="block text-[10px] text-amber-400/90 font-semibold mt-0.5">
-                                • Multiplicador Nível {currentLevel}: x{currentLevel} bônus acumulados
-                              </span>
-                            )}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Bottom Evolution Controls */}
-                      <div className="flex items-center justify-between pt-2 border-t border-zinc-800/60">
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => onDesignioLevelChange?.(des.id, -1)}
-                            disabled={currentLevel <= 0}
-                            className="w-7 h-7 rounded-lg bg-zinc-900 hover:bg-zinc-800 disabled:opacity-20 disabled:cursor-not-allowed flex items-center justify-center text-zinc-300 border border-zinc-800 transition-colors"
-                            title="Reduzir Nível"
-                          >
-                            <Minus size={12} />
-                          </button>
-                          <span className="w-8 text-center font-black text-sm text-zinc-100 font-mono">
-                            {currentLevel}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => onDesignioLevelChange?.(des.id, 1)}
-                            disabled={!canAfford}
-                            className="w-7 h-7 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 disabled:opacity-20 disabled:cursor-not-allowed flex items-center justify-center text-amber-400 border border-amber-500/30 transition-colors"
-                            title={canAfford ? `Aumentar Nível (+${cost} XP)` : `Sem XP suficiente (${cost} XP)`}
-                          >
-                            <Plus size={12} />
-                          </button>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => onDesignioLevelChange?.(des.id, 1)}
-                          disabled={!canAfford}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold tracking-wide transition-all flex items-center gap-1.5 ${
-                            canAfford
-                              ? 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-zinc-950 shadow-md shadow-amber-500/10'
-                              : 'bg-zinc-900 text-zinc-600 border border-zinc-800 cursor-not-allowed'
-                          }`}
-                        >
-                          <Award size={13} />
-                          <span>Evoluir ({cost} XP)</span>
-                        </button>
+                        <h3 className="text-sm font-black text-amber-400 uppercase tracking-wide">
+                          {isCreatingNewDes ? 'Criar Novo Desígnio' : `Editar Desígnio: ${editingDes.name}`}
+                        </h3>
+                        <p className="text-[11px] text-zinc-400">Configure o nome, rank e os bônus concedidos por nível de evolução.</p>
                       </div>
                     </div>
-                  );
-                })}
-            </div>
-          )}
-        </div>
 
-        {/* Unlocked Skill List by Categories */}
-        <div className="space-y-6 pt-4">
-          <h3 className="text-lg font-bold text-zinc-100 flex items-center gap-2">
-            <BookOpen size={20} className="text-amber-400" />
-            Grimório de Habilidades Ativas ({unlockedSkills.length})
-          </h3>
-
-          {unlockedSkills.length === 0 ? (
-            <div className="p-8 text-center bg-zinc-900/40 rounded-2xl border border-zinc-800 text-zinc-500 text-xs">
-              Nenhuma habilidade aprendida ainda. Acesse a guia <strong className="text-amber-400">Árvore de Habilidades</strong> para desbloquear suas técnicas!
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {/* Ultimates */}
-              {ultimates.length > 0 && (
-                <SkillCategoryBlock
-                  title="Habilidades Supremas (Rank SS)"
-                  icon={<Crown className="text-amber-400" size={18} />}
-                  skills={ultimates}
-                  userSkillRanks={userSkillRanks}
-                  onUpgradeSkillRank={onUpgradeSkillRank}
-                  xpAvailable={xpAvailable}
-                  xpConfig={xpConfig}
-                  onTestRollSkill={onTestRollSkill}
-                />
-              )}
-
-              {/* Main Actions */}
-              {mainActions.length > 0 && (
-                <SkillCategoryBlock
-                  title="Ações Principais em Combate"
-                  icon={<Zap className="text-orange-400" size={18} />}
-                  skills={mainActions}
-                  userSkillRanks={userSkillRanks}
-                  onUpgradeSkillRank={onUpgradeSkillRank}
-                  xpAvailable={xpAvailable}
-                  xpConfig={xpConfig}
-                  onTestRollSkill={onTestRollSkill}
-                />
-              )}
-
-              {/* Bonus Actions */}
-              {bonusActions.length > 0 && (
-                <SkillCategoryBlock
-                  title="Ações de Bônus / Movimento"
-                  icon={<Sparkles className="text-cyan-400" size={18} />}
-                  skills={bonusActions}
-                  userSkillRanks={userSkillRanks}
-                  onUpgradeSkillRank={onUpgradeSkillRank}
-                  xpAvailable={xpAvailable}
-                  xpConfig={xpConfig}
-                  onTestRollSkill={onTestRollSkill}
-                />
-              )}
-
-              {/* Reactions */}
-              {reactions.length > 0 && (
-                <SkillCategoryBlock
-                  title="Reações & Defesas"
-                  icon={<Shield className="text-emerald-400" size={18} />}
-                  skills={reactions}
-                  userSkillRanks={userSkillRanks}
-                  onUpgradeSkillRank={onUpgradeSkillRank}
-                  xpAvailable={xpAvailable}
-                  xpConfig={xpConfig}
-                  onTestRollSkill={onTestRollSkill}
-                />
-              )}
-
-              {/* Passives */}
-              {passives.length > 0 && (
-                <SkillCategoryBlock
-                  title="Habilidades Passivas Permanentemente Ativas"
-                  icon={<BookOpen className="text-purple-400" size={18} />}
-                  skills={passives}
-                  userSkillRanks={userSkillRanks}
-                  onUpgradeSkillRank={onUpgradeSkillRank}
-                  xpAvailable={xpAvailable}
-                  xpConfig={xpConfig}
-                  onTestRollSkill={onTestRollSkill}
-                />
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Character Notes Textarea */}
-        <div className="pt-6 border-t border-zinc-900">
-          <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">
-            Anotações do Jogador / História do Personagem
-          </label>
-          <textarea
-            value={notes}
-            onChange={(e) => onNotesChange(e.target.value)}
-            placeholder="Anote detalhes de equipamento, origem do guardião, feitiços favoritos ou antecedentes de mesa..."
-            rows={4}
-            className="w-full p-3.5 bg-zinc-900/80 border border-zinc-800 rounded-xl text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-500"
-          />
-        </div>
-      </div>
-    </div>
-  );
-};
-
-interface SkillCategoryBlockProps {
-  title: string;
-  icon: React.ReactNode;
-  skills: SkillNode[];
-  userSkillRanks?: Record<string, SkillRank>;
-  onUpgradeSkillRank?: (skillId: string) => void;
-  xpAvailable?: number;
-  xpConfig?: XPConfig;
-  onTestRollSkill: (skill: SkillNode) => void;
-}
-
-const SkillCategoryBlock: React.FC<SkillCategoryBlockProps> = ({
-  title,
-  icon,
-  skills,
-  userSkillRanks = {},
-  onUpgradeSkillRank,
-  xpAvailable = 0,
-  xpConfig,
-  onTestRollSkill,
-}) => {
-  return (
-    <div className="space-y-3">
-      <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
-        {icon}
-        <span>{title} ({skills.length})</span>
-      </h4>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {skills.map((skill) => {
-          const elemDef = ELEMENTS[skill.elementId];
-          const rank = userSkillRanks[skill.id] || 'D';
-          const nextUpgrade = getSkillNextUpgradeCost(skill.tier, rank, xpConfig);
-          const canAffordUpgrade = nextUpgrade ? xpAvailable >= nextUpgrade.cost : false;
-
-          return (
-            <div
-              key={skill.id}
-              className="p-4 bg-zinc-900/70 border border-zinc-800/80 rounded-xl flex flex-col justify-between hover:border-zinc-700 transition-colors"
-            >
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-1.5">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="p-1.5 rounded-lg border text-white"
-                      style={{
-                        backgroundColor: `${elemDef.colorHex}20`,
-                        borderColor: `${elemDef.colorHex}40`,
-                        color: elemDef.colorHex,
-                      }}
-                    >
-                      <IconHelper name={elemDef.iconName} size={14} />
+                    <span className={`px-2.5 py-1 text-xs font-black rounded-lg border ${rankStyles[editingDes.rank].badge}`}>
+                      Rank {editingDes.rank}
                     </span>
-                    <div>
-                      <h5 className="font-bold text-xs text-zinc-100 flex items-center gap-1.5">
-                        {skill.name}
-                        <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-black">
-                          Rank {rank}
-                        </span>
-                      </h5>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="md:col-span-2 space-y-1">
+                      <label className="text-xs font-bold text-zinc-300">Nome do Desígnio</label>
+                      <input
+                        type="text"
+                        required
+                        value={editingDes.name}
+                        onChange={(e) => setEditingDes({ ...editingDes, name: e.target.value })}
+                        className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-zinc-100 font-bold focus:outline-none focus:border-amber-500"
+                        placeholder="Ex: Coragem Divina"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-zinc-300">Rank (Categoria)</label>
+                      <select
+                        value={editingDes.rank}
+                        onChange={(e) => setEditingDes({ ...editingDes, rank: e.target.value as DesignioRank })}
+                        className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs font-bold text-amber-400 focus:outline-none focus:border-amber-500"
+                      >
+                        <option value="D">Rank D</option>
+                        <option value="C">Rank C</option>
+                        <option value="B">Rank B</option>
+                        <option value="A">Rank A</option>
+                        <option value="S">Rank S</option>
+                      </select>
+                    </div>
+
+                    <div className="md:col-span-3 space-y-1">
+                      <label className="text-xs font-bold text-zinc-300">Descrição do Efeito</label>
+                      <textarea
+                        rows={2}
+                        required
+                        value={editingDes.description}
+                        onChange={(e) => setEditingDes({ ...editingDes, description: e.target.value })}
+                        className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-zinc-200 focus:outline-none focus:border-amber-500"
+                        placeholder="Descreva os efeitos e aumentos de atributos concedidos por este Desígnio."
+                      />
                     </div>
                   </div>
 
-                  <span className="text-[10px] font-mono font-bold text-amber-400">
-                    {skill.diceRoll}
-                  </span>
-                </div>
+                  {/* Statutory Bonuses Section */}
+                  <div className="space-y-3 pt-2">
+                    <label className="text-xs font-bold text-amber-300 uppercase tracking-wide flex items-center gap-1.5">
+                      <Award size={14} className="text-amber-400" />
+                      Bônus de Atributos por Nível Adquirido
+                    </label>
 
-                <p className="text-[11px] text-zinc-300 leading-relaxed mb-3">
-                  {skill.description}
-                </p>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                      {[
+                        { key: 'pvs', label: 'PVs (Pontos de Vida)', color: 'text-red-400' },
+                        { key: 'pms', label: 'PMs (Pontos de Mana)', color: 'text-blue-400' },
+                        { key: 'ataque', label: 'Ataque Físico', color: 'text-amber-400' },
+                        { key: 'defesa', label: 'Defesa Física', color: 'text-emerald-400' },
+                        { key: 'atqEspecial', label: 'Atq. Especial', color: 'text-purple-400' },
+                        { key: 'defEspecial', label: 'Def. Especial', color: 'text-cyan-400' },
+                        { key: 'velAtq', label: 'Velocidade de Ataque', color: 'text-cyan-300' },
+                        { key: 'velMov', label: 'Velocidade de Movimento', color: 'text-emerald-300' },
+                        { key: 'velEspecial', label: 'Velocidade Especial', color: 'text-purple-300' },
+                        { key: 'dCrit', label: 'Dano Crítico (+%)', color: 'text-amber-300' },
+                        { key: 'regeneracao', label: 'Regeneração', color: 'text-emerald-400' },
+                      ].map(({ key, label, color }) => {
+                        const val = (editingDes as any)[key] ?? 0;
+                        return (
+                          <div key={key} className="p-2.5 bg-zinc-950 rounded-xl border border-zinc-800/80 flex flex-col justify-between gap-1">
+                            <span className={`text-[11px] font-bold ${color}`}>{label}</span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs text-zinc-500 font-mono">+</span>
+                              <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                value={val}
+                                onChange={(e) => {
+                                  const num = Number(e.target.value);
+                                  setEditingDes((prev) => prev ? { ...prev, [key]: num > 0 ? num : undefined } : null);
+                                }}
+                                className="w-full px-2 py-1 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-mono font-bold text-amber-400 text-right focus:outline-none focus:border-amber-500"
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Form Footer */}
+                  <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-800">
+                    <button
+                      type="button"
+                      onClick={() => setEditingDes(null)}
+                      className="px-4 py-2 bg-zinc-950 hover:bg-zinc-800 text-zinc-300 rounded-xl text-xs font-bold border border-zinc-800 transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-zinc-950 font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-amber-500/20 transition-all flex items-center gap-2"
+                    >
+                      <Save size={15} />
+                      <span>Salvar Desígnio</span>
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                /* List view */
+                <div className="space-y-4">
+                  {/* Top Control Bar */}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-3 bg-zinc-900/80 border border-zinc-800 rounded-2xl">
+                    <div className="flex items-center gap-2 flex-1">
+                      <div className="relative flex-1">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                        <input
+                          type="text"
+                          placeholder="Buscar Desígnio por nome ou efeito..."
+                          value={desSearchQuery}
+                          onChange={(e) => setDesSearchQuery(e.target.value)}
+                          className="w-full pl-9 pr-3 py-1.5 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-zinc-200 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+
+                      {/* Rank filter pills */}
+                      <div className="flex items-center gap-1 overflow-x-auto max-w-full">
+                        {(['ALL', 'D', 'C', 'B', 'A', 'S'] as const).map((r) => (
+                          <button
+                            key={r}
+                            onClick={() => setDesRankFilter(r)}
+                            className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all ${
+                              desRankFilter === r
+                                ? 'bg-amber-500 text-zinc-950 shadow'
+                                : 'bg-zinc-950 text-zinc-400 hover:text-zinc-200 border border-zinc-800'
+                            }`}
+                          >
+                            {r === 'ALL' ? 'Todos' : `Rank ${r}`}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={handleResetAllDes}
+                        className="px-3 py-1.5 bg-zinc-950 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 rounded-xl text-xs font-bold border border-zinc-800 transition-colors flex items-center gap-1.5"
+                        title="Restaurar para os Desígnios originais do sistema"
+                      >
+                        <RotateCcw size={13} />
+                        <span className="hidden md:inline">Restaurar Padrões</span>
+                      </button>
+
+                      <button
+                        onClick={handleStartCreateDes}
+                        className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-zinc-950 font-black text-xs rounded-xl shadow transition-all flex items-center gap-1.5"
+                      >
+                        <Plus size={15} />
+                        <span>Novo Desígnio</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Grid of Desígnios */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                    {localDesignios
+                      .filter((d) => {
+                        const matchRank = desRankFilter === 'ALL' || d.rank === desRankFilter;
+                        const matchQuery =
+                          !desSearchQuery.trim() ||
+                          d.name.toLowerCase().includes(desSearchQuery.toLowerCase()) ||
+                          d.description.toLowerCase().includes(desSearchQuery.toLowerCase());
+                        return matchRank && matchQuery;
+                      })
+                      .map((des) => {
+                        const style = rankStyles[des.rank];
+
+                        return (
+                          <div
+                            key={des.id}
+                            className={`p-4 rounded-2xl border ${style.border} ${style.bg} flex flex-col justify-between gap-3 relative group hover:border-amber-500/40 transition-all`}
+                          >
+                            <div>
+                              <div className="flex items-start justify-between gap-2 mb-1.5">
+                                <h4 className={`text-sm font-black ${style.text} flex items-center gap-1.5`}>
+                                  {des.name}
+                                </h4>
+                                <span className={`px-2 py-0.5 text-[10px] font-black rounded-md border ${style.badge}`}>
+                                  Rank {des.rank}
+                                </span>
+                              </div>
+
+                              {/* Bonus pills */}
+                              <div className="flex flex-wrap gap-1 mb-2">
+                                {des.pvs ? <span className="px-1.5 py-0.5 rounded bg-red-950/50 text-red-300 border border-red-900/50 text-[10px] font-mono font-bold">PVs +{des.pvs}</span> : null}
+                                {des.pms ? <span className="px-1.5 py-0.5 rounded bg-blue-950/50 text-blue-300 border border-blue-900/50 text-[10px] font-mono font-bold">PMs +{des.pms}</span> : null}
+                                {des.ataque ? <span className="px-1.5 py-0.5 rounded bg-amber-950/50 text-amber-300 border border-amber-900/50 text-[10px] font-mono font-bold">Ataque +{des.ataque}</span> : null}
+                                {des.defesa ? <span className="px-1.5 py-0.5 rounded bg-emerald-950/50 text-emerald-300 border border-emerald-900/50 text-[10px] font-mono font-bold">Defesa +{des.defesa}</span> : null}
+                                {des.atqEspecial ? <span className="px-1.5 py-0.5 rounded bg-purple-950/50 text-purple-300 border border-purple-900/50 text-[10px] font-mono font-bold">Atq.Esp +{des.atqEspecial}</span> : null}
+                                {des.defEspecial ? <span className="px-1.5 py-0.5 rounded bg-cyan-950/50 text-cyan-300 border border-cyan-900/50 text-[10px] font-mono font-bold">Def.Esp +{des.defEspecial}</span> : null}
+                                {des.velAtq ? <span className="px-1.5 py-0.5 rounded bg-cyan-950/50 text-cyan-200 border border-cyan-900/50 text-[10px] font-mono font-bold">Vel.Atq +{des.velAtq}</span> : null}
+                                {des.velMov ? <span className="px-1.5 py-0.5 rounded bg-emerald-950/50 text-emerald-200 border border-emerald-900/50 text-[10px] font-mono font-bold">Vel.Mov +{des.velMov}</span> : null}
+                                {des.velEspecial ? <span className="px-1.5 py-0.5 rounded bg-purple-950/50 text-purple-200 border border-purple-900/50 text-[10px] font-mono font-bold">Vel.Esp +{des.velEspecial}</span> : null}
+                                {des.dCrit ? <span className="px-1.5 py-0.5 rounded bg-amber-950/50 text-amber-200 border border-amber-900/50 text-[10px] font-mono font-bold">D.Crit +{des.dCrit}</span> : null}
+                                {des.regeneracao ? <span className="px-1.5 py-0.5 rounded bg-emerald-950/50 text-emerald-300 border border-emerald-900/50 text-[10px] font-mono font-bold">Regen +{des.regeneracao}</span> : null}
+                              </div>
+
+                              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                                {des.description}
+                              </p>
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="flex items-center justify-end gap-1.5 pt-2 border-t border-zinc-800/80">
+                              <button
+                                onClick={() => handleDuplicateDes(des)}
+                                className="p-1.5 text-zinc-400 hover:text-amber-400 bg-zinc-900 hover:bg-zinc-800 rounded-lg border border-zinc-800 transition-colors flex items-center gap-1 text-[11px]"
+                                title="Duplicar Desígnio"
+                              >
+                                <Copy size={13} />
+                                <span className="hidden sm:inline">Duplicar</span>
+                              </button>
+
+                              <button
+                                onClick={() => handleStartEditDes(des)}
+                                className="p-1.5 text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg border border-amber-500/30 transition-colors flex items-center gap-1 text-[11px] font-bold"
+                                title="Editar Desígnio"
+                              >
+                                <Pencil size={13} />
+                                <span>Editar</span>
+                              </button>
+
+                              <button
+                                onClick={() => handleDeleteDes(des.id, des.name)}
+                                className="p-1.5 text-red-400 hover:text-red-300 bg-red-950/40 hover:bg-red-900/40 rounded-lg border border-red-800/50 transition-colors flex items-center gap-1 text-[11px]"
+                                title="Excluir Desígnio"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 3: PLAYERS */}
+          {activeTab === 'players' && (
+            <div className="space-y-5">
+              {/* Select Player */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-zinc-300 block">Selecione o Jogador / Conta</label>
+                <select
+                  value={selectedUsername}
+                  onChange={(e) => setSelectedUsername(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-zinc-200 focus:outline-none focus:border-amber-500"
+                >
+                  {safeAccounts.map((acc) => (
+                    <option key={acc.username} value={acc.username}>
+                      {acc.characterName} (@{acc.username}) - Total XP: {acc.xpTotal ?? 1000} XP
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              <div className="pt-2 border-t border-zinc-800/60 flex items-center justify-between text-[10px] text-zinc-500 gap-2">
-                <span>Alcance: {skill.range} • Mana: {skill.manaCost}PM</span>
+              {/* Selected Account Detail & XP Adjust */}
+              <div className="p-4 bg-zinc-900/90 border border-zinc-800 rounded-xl space-y-4">
+                <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-zinc-100">{selectedAccount.characterName}</h3>
+                    <p className="text-xs text-zinc-500 font-mono">@{selectedAccount.username}</p>
+                  </div>
 
-                <div className="flex items-center gap-1.5">
-                  {nextUpgrade && onUpgradeSkillRank && (
-                    <button
-                      onClick={() => onUpgradeSkillRank(skill.id)}
-                      disabled={!canAffordUpgrade}
-                      className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1 ${
-                        canAffordUpgrade
-                          ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40'
-                          : 'bg-zinc-900 text-zinc-600 border border-zinc-800 cursor-not-allowed'
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
+                        selectedAccount.role === 'admin'
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                          : 'bg-zinc-800 text-zinc-400 border-zinc-700'
                       }`}
-                      title={canAffordUpgrade ? `Evoluir para Rank ${nextUpgrade.nextRank}` : `Necessário ${nextUpgrade.cost} XP`}
                     >
-                      <Award size={11} />
-                      <span>Evoluir ({nextUpgrade.cost} XP)</span>
-                    </button>
-                  )}
+                      {selectedAccount.role === 'admin' ? 'Mestre / ADM' : 'Jogador'}
+                    </span>
 
-                  <button
-                    onClick={() => onTestRollSkill(skill)}
-                    className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-amber-300 font-semibold flex items-center gap-1 transition-colors"
-                  >
-                    <Dices size={12} />
-                    <span>Rolar</span>
-                  </button>
+                    <button
+                      onClick={handleToggleRole}
+                      className="px-2.5 py-1 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg transition-colors border border-zinc-700"
+                    >
+                      Alternar Cargo
+                    </button>
+                  </div>
+                </div>
+
+                {/* Direct XP Controls */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
+                    <span>XP Total Acumulado:</span>
+                    <span className="text-lg font-black text-amber-400 font-mono">{selectedAccount.xpTotal ?? 1000} XP</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <button
+                      onClick={() => handleGiveXp(100)}
+                      className="py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1"
+                    >
+                      <Plus size={12} /> 100 XP
+                    </button>
+                    <button
+                      onClick={() => handleGiveXp(500)}
+                      className="py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1"
+                    >
+                      <Plus size={12} /> 500 XP
+                    </button>
+                    <button
+                      onClick={() => handleGiveXp(1000)}
+                      className="py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1"
+                    >
+                      <Plus size={12} /> 1000 XP
+                    </button>
+                    <button
+                      onClick={() => handleGiveXp(-500)}
+                      className="py-2 bg-red-950/40 hover:bg-red-900/40 text-red-300 border border-red-800/50 rounded-xl text-xs font-bold transition-all"
+                    >
+                      -500 XP
+                    </button>
+                  </div>
+
+                  {/* Manual XP input */}
+                  <div className="pt-2 flex items-center gap-2">
+                    <input
+                      type="number"
+                      placeholder="Quantidade customizada"
+                      value={addXpAmount}
+                      onChange={(e) => setAddXpAmount(Number(e.target.value))}
+                      className="flex-1 px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs font-mono text-zinc-100 focus:outline-none focus:border-amber-500"
+                    />
+                    <button
+                      onClick={() => handleGiveXp(addXpAmount)}
+                      className="px-4 py-2 bg-amber-500 text-zinc-950 font-bold text-xs rounded-xl hover:bg-amber-400 transition-colors shrink-0"
+                    >
+                      Conceder XP
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
-          );
-        })}
+          )}
+        </div>
       </div>
     </div>
   );
