@@ -1,8 +1,5 @@
-node_modules/
-build/
-dist/
-coverage/
-.DS_Store
-*.log
-.env*
-!.env.example
+{
+  "name": "fea-rpg",
+  "version": "1.0.0",
+  "type": "module"
+}
