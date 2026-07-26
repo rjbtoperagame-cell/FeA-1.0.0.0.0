@@ -1,0 +1,243 @@
+import { initializeApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
+import {
+  getFirestore,
+  doc,
+  setDoc,
+  getDoc,
+  onSnapshot,
+  collection,
+  getDocFromServer,
+} from 'firebase/firestore';
+import firebaseConfig from '../../firebase-applet-config.json';
+import { UserAccount } from '../components/LoginScreen';
+import { XPConfig, SkillNode, PurchasedCombatStats, CharacterAttributes, SkillRank } from '../types';
+import { DesignioDefinition } from '../data/designiosData';
+
+const app = initializeApp(firebaseConfig);
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const auth = getAuth();
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+  };
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+    },
+    operationType,
+    path,
+  };
+  console.error('Firestore Error:', JSON.stringify(errInfo));
+  return errInfo;
+}
+
+// Test Connection on Initial Boot as mandated by guidelines
+async function testConnection() {
+  try {
+    await getDocFromServer(doc(db, 'system', 'connection_test'));
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.warn('Firebase connection test: Client is offline or initializing.');
+    }
+  }
+}
+testConnection();
+
+// --- Real-time Listeners (onSnapshot) ---
+
+export interface CharacterSheetState {
+  characterName: string;
+  animalId: string;
+  xpTotal: number;
+  attributes: CharacterAttributes;
+  unlockedSkillIds: string[];
+  userSkillRanks: Record<string, SkillRank>;
+  purchasedCombatStats: PurchasedCombatStats;
+  userDesignios: Record<string, number>;
+  notes: string;
+}
+
+// Real-time listener for all user accounts and character sheets
+export function subscribeToUsers(
+  onUpdate: (users: UserAccount[], userSheets: Record<string, CharacterSheetState>) => void
+) {
+  const usersRef = collection(db, 'users');
+  return onSnapshot(
+    usersRef,
+    (snapshot) => {
+      const users: UserAccount[] = [];
+      const userSheets: Record<string, CharacterSheetState> = {};
+
+      snapshot.docs.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (data.username) {
+          users.push({
+            username: data.username,
+            password: data.password || '',
+            role: data.role || 'user',
+            characterName: data.characterName || 'Guardião',
+            animalId: data.animalId || 'leao',
+            xpTotal: data.xpTotal || 1000,
+            createdAt: data.createdAt || new Date().toISOString(),
+          });
+
+          userSheets[data.username] = {
+            characterName: data.characterName || 'Guardião',
+            animalId: data.animalId || 'leao',
+            xpTotal: typeof data.xpTotal === 'number' ? data.xpTotal : 1000,
+            attributes: data.attributes || { forca: 2, destreza: 2, constituicao: 1, poder: 1 },
+            unlockedSkillIds: Array.isArray(data.unlockedSkillIds) ? data.unlockedSkillIds : [],
+            userSkillRanks: data.userSkillRanks || {},
+            purchasedCombatStats: data.purchasedCombatStats || {
+              pvs: 0,
+              pms: 0,
+              ataque: 0,
+              atqEspecial: 0,
+              defesa: 0,
+              defEspecial: 0,
+              critico: 0,
+              velAtq: 0,
+              velMov: 0,
+              velEspecial: 0,
+            },
+            userDesignios: data.userDesignios || {},
+            notes: data.notes || '',
+          };
+        }
+      });
+
+      onUpdate(users, userSheets);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.GET, 'users');
+    }
+  );
+}
+
+// Save single user account + character sheet state to Firestore
+export async function saveUserToFirestore(
+  account: UserAccount,
+  sheetData?: Partial<CharacterSheetState>
+) {
+  const path = `users/${account.username}`;
+  try {
+    const userDocRef = doc(db, 'users', account.username);
+    const existingDoc = await getDoc(userDocRef);
+    const existingData = existingDoc.exists() ? existingDoc.data() : {};
+
+    const payload = {
+      ...existingData,
+      username: account.username,
+      password: account.password || '',
+      role: account.role || 'user',
+      characterName: sheetData?.characterName ?? existingData.characterName ?? account.characterName ?? 'Guardião',
+      animalId: sheetData?.animalId ?? existingData.animalId ?? account.animalId ?? 'leao',
+      xpTotal: sheetData?.xpTotal ?? existingData.xpTotal ?? account.xpTotal ?? 1000,
+      createdAt: account.createdAt || existingData.createdAt || new Date().toISOString(),
+      ...(sheetData?.attributes ? { attributes: sheetData.attributes } : {}),
+      ...(sheetData?.unlockedSkillIds ? { unlockedSkillIds: sheetData.unlockedSkillIds } : {}),
+      ...(sheetData?.userSkillRanks ? { userSkillRanks: sheetData.userSkillRanks } : {}),
+      ...(sheetData?.purchasedCombatStats ? { purchasedCombatStats: sheetData.purchasedCombatStats } : {}),
+      ...(sheetData?.userDesignios ? { userDesignios: sheetData.userDesignios } : {}),
+      ...(sheetData?.notes !== undefined ? { notes: sheetData.notes } : {}),
+      updatedAt: new Date().toISOString(),
+    };
+
+    await setDoc(userDocRef, payload, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+// Real-time listener for System Config (XPConfig, Custom Skills, Designios)
+export function subscribeToSystemConfig(
+  onConfigUpdate: (
+    xpConfig?: XPConfig,
+    customSkills?: Record<string, SkillNode>,
+    designiosList?: DesignioDefinition[]
+  ) => void
+) {
+  const configRef = collection(db, 'system');
+  return onSnapshot(
+    configRef,
+    (snapshot) => {
+      let xpConfig: XPConfig | undefined;
+      let customSkills: Record<string, SkillNode> | undefined;
+      let designiosList: DesignioDefinition[] | undefined;
+
+      snapshot.docs.forEach((docSnap) => {
+        if (docSnap.id === 'xpConfig') {
+          xpConfig = docSnap.data().data as XPConfig;
+        } else if (docSnap.id === 'customSkills') {
+          customSkills = docSnap.data().data as Record<string, SkillNode>;
+        } else if (docSnap.id === 'designios') {
+          designiosList = docSnap.data().data as DesignioDefinition[];
+        }
+      });
+
+      onConfigUpdate(xpConfig, customSkills, designiosList);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.GET, 'system');
+    }
+  );
+}
+
+// Save XP Config to Firestore
+export async function saveXPConfigToFirestore(xpConfig: XPConfig) {
+  const path = 'system/xpConfig';
+  try {
+    await setDoc(doc(db, 'system', 'xpConfig'), {
+      data: xpConfig,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+// Save Custom Skills to Firestore
+export async function saveCustomSkillsToFirestore(customSkills: Record<string, SkillNode>) {
+  const path = 'system/customSkills';
+  try {
+    await setDoc(doc(db, 'system', 'customSkills'), {
+      data: customSkills,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+// Save Designios List to Firestore
+export async function saveDesigniosToFirestore(designiosList: DesignioDefinition[]) {
+  const path = 'system/designios';
+  try {
+    await setDoc(doc(db, 'system', 'designios'), {
+      data: designiosList,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
